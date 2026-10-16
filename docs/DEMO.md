@@ -6,18 +6,15 @@
 
 [![双模型真实运动预览，左H3右Seedance](./assets/demos/two-model-preview.gif)](./assets/demos/seedance-2.5-15s.mp4)
 
-| 型号 | 完整文件 | 文件SHA-256 |
-| --- | --- | --- |
-| MiniMax H3 | [15秒MP4](https://github.com/user-attachments/assets/f9f2dc33-182f-47ab-af82-89b0430438e8) | `bc9c0ce8f132f3f014df477b17d8f72f99f2d95740ce804458185b1a1703d9ba` |
-| Seedance 2.5 | [15秒MP4](https://github.com/user-attachments/assets/3f925daf-0cf4-498a-b58d-2f83b11b5bb6) | `ea07ef4fc8145ab7895fa8398734781f810913569e007520239b5f7a8dd01c4e` |
+| MiniMax H3 · 完整15秒 | Seedance 2.5 · 完整15秒 |
+| :---: | :---: |
+| [播放视频](https://github.com/user-attachments/assets/f9f2dc33-182f-47ab-af82-89b0430438e8) | [播放视频](https://github.com/user-attachments/assets/3f925daf-0cf4-498a-b58d-2f83b11b5bb6) |
+| [仓库MP4](./assets/demos/minimax-h3-15s.mp4) | [仓库MP4](./assets/demos/seedance-2.5-15s.mp4) |
 
-**MiniMax H3 · 完整15秒**
+SHA-256：
 
-https://github.com/user-attachments/assets/f9f2dc33-182f-47ab-af82-89b0430438e8
-
-**Seedance 2.5 · 完整15秒**
-
-https://github.com/user-attachments/assets/3f925daf-0cf4-498a-b58d-2f83b11b5bb6
+- H3：`bc9c0ce8f132f3f014df477b17d8f72f99f2d95740ce804458185b1a1703d9ba`。
+- Seedance：`ea07ef4fc8145ab7895fa8398734781f810913569e007520239b5f7a8dd01c4e`。
 
 动态GIF取自两条真实视频的2.0–4.5秒片段，只用于快速预览；完整视频各15秒，包含原生音轨。
 
