@@ -1,0 +1,12 @@
+{
+  "source": "https://api.ai-tudou.net/v1/tasks/task_p8JVHqHCbAw8G0UR7qRqWbntxz0IxvG5",
+  "observation": {
+    "at": "2026-10-08T12:49:22.684408+00:00",
+    "task_id": "task_p8JVHqHCbAw8G0UR7qRqWbntxz0IxvG5",
+    "status": "failed",
+    "progress": 100,
+    "error": {
+      "message": "video generation timed out"
+    }
+  }
+}

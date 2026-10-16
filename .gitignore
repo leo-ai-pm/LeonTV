@@ -33,3 +33,26 @@ coverage/
 dev/
 /design-qa.md
 /AI产品Vibe Coding通用前端技术栈手册.md
+
+# Private runtime state and production material
+**/harness_data/
+**/backend/code/
+**/backend/code.bak/
+**/backend/temp/
+**/backend/logs/
+/docs/evidence/
+/docs/technical-research/
+/docs/PRD-*.md
+/docs/PROJECT-AUDIT-*.md
+/docs/HARNESS-FEASIBILITY-*.md
+/docs/HARNESS-PERSONAL-AGENT-BOUNDARY-*.md
+/docs/LTV-*-COORDINATION.md
+/docs/DOUBAO-*
+/docs/VIDEO-BENCHMARK-*.md
+/docs/DEVELOPMENT-ROADMAP-LeonTV.md
+**/backend/docs/LTV-*.json
+
+# Local upstream reference copies and superseded marketing assets
+/FilmAgent/
+/FilmAgent-pics/
+/Leon TV-pics/

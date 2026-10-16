@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "purpose": "Public README demo assets from real Tudou API outputs. The trial demonstrates execution, not a content-quality acceptance pass.",
+  "quality_status": {
+    "technical": "Both published MP4 files decode, are 15.0 seconds and 720x1280, and include AAC audio.",
+    "content": "Not accepted: both contain unwanted subtitles; MiniMax H3 also deviates from requested character actions. Dialogue and lip synchronization require human listening."
+  },
+  "outputs": [
+    {
+      "model": "minimax-h3",
+      "source": "Leon TV/Leon TV/backend/code/result/LTV-TUDOU-AB-20261016/minimax-h3/review-15s-attempt-1.mp4",
+      "source_sha256": "bc9c0ce8f132f3f014df477b17d8f72f99f2d95740ce804458185b1a1703d9ba",
+      "published": "docs/assets/demos/minimax-h3-15s.mp4",
+      "published_sha256": "bc9c0ce8f132f3f014df477b17d8f72f99f2d95740ce804458185b1a1703d9ba",
+      "bytes": 5246240,
+      "copy_mode": "byte-for-byte; no transcode",
+      "measured": {
+        "duration_seconds": 15.0,
+        "width": 720,
+        "height": 1280,
+        "frames_per_second": 24.0,
+        "video_codec": "h264",
+        "audio_codec": "aac",
+        "full_decode_exit_code": 0
+      },
+      "cover": {
+        "path": "docs/assets/demos/minimax-h3-cover.jpg",
+        "sample_at_seconds": 3.0,
+        "max_size": [
+          360,
+          640
+        ],
+        "encoding": "JPEG quality=88 optimize=true",
+        "sha256": "4735e341d67ae3a011341dac7ecb589594d0ddf9936437bcda4997cade241a4c"
+      }
+    },
+    {
+      "model": "seedance-2.5",
+      "source": "Leon TV/Leon TV/backend/code/result/LTV-TUDOU-AB-20261016/seedance-2.5/review-15s-attempt-1.mp4",
+      "source_sha256": "ea07ef4fc8145ab7895fa8398734781f810913569e007520239b5f7a8dd01c4e",
+      "published": "docs/assets/demos/seedance-2.5-15s.mp4",
+      "published_sha256": "ea07ef4fc8145ab7895fa8398734781f810913569e007520239b5f7a8dd01c4e",
+      "bytes": 4133146,
+      "copy_mode": "byte-for-byte; no transcode",
+      "measured": {
+        "duration_seconds": 15.0,
+        "width": 720,
+        "height": 1280,
+        "frames_per_second": 24.0,
+        "video_codec": "h264",
+        "audio_codec": "aac",
+        "full_decode_exit_code": 0
+      },
+      "cover": {
+        "path": "docs/assets/demos/seedance-2.5-cover.jpg",
+        "sample_at_seconds": 3.0,
+        "max_size": [
+          360,
+          640
+        ],
+        "encoding": "JPEG quality=88 optimize=true",
+        "sha256": "31dd450b5f1c0b942fb8593adadb7631207978a36c382046d2508295724c2f77"
+      }
+    }
+  ],
+  "motion_preview": {
+    "path": "docs/assets/demos/two-model-preview.gif",
+    "sha256": "d81183f8ab2e5c59e3be0c6e1e4773e1bc2238876dd187362ae75828e18175d1",
+    "bytes": 1355262,
+    "sources": [
+      "docs/assets/demos/minimax-h3-15s.mp4",
+      "docs/assets/demos/seedance-2.5-15s.mp4"
+    ],
+    "sampling": {
+      "start_seconds": 2.0,
+      "duration_seconds": 2.5,
+      "frames_per_second": 8,
+      "frames": 20,
+      "per_clip_size": [
+        224,
+        398
+      ],
+      "layout": "side-by-side, 8-pixel gutter, 40-pixel model-label header",
+      "audio": "omitted in GIF; preserved in full MP4s"
+    },
+    "source_sampling_filter": "fps=8,scale=224:398:flags=lanczos",
+    "encoding": "Pillow animated GIF, alternating 120/130 ms frames (8 fps average), infinite loop, optimized palette, disposal=2",
+    "note": "Real sampled motion only; shortened low-resolution navigation preview.",
+    "measured": {
+      "width": 456,
+      "height": 438,
+      "frames": 20,
+      "duration_seconds": 2.5,
+      "unique_frames": 20
+    }
+  },
+  "tools": {
+    "ffmpeg_version": "7.1",
+    "image_processing": "Pillow"
+  },
+  "privacy": "No API secrets, private request payloads, signed provider URLs or full script document included."
+}

@@ -1,188 +1,176 @@
-<h1 align="center">LeonTV</h1>
+<div align="center">
 
-<p align="center">
-  <b>An AI directing agent that turns a single idea into a finished short film</b>
-</p>
+# Leon TV
 
-<p align="center">
-  <a href="./README.md">简体中文</a> | <b>English</b>
-</p>
+### An Agent Harness project for AI video creation
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10+-purple.svg" alt="Python">
-  <img src="https://img.shields.io/badge/Node.js-20.9+-green.svg" alt="Node">
-  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/based%20on-XiaoYunQue-ff4444.svg" alt="Based on XiaoYunQue">
-</p>
+Turn ideas and scripts into storyboards, images, video clips and edited output—with visible, editable intermediate results.
 
----
+[简体中文](./README.md) · **English**
 
-## 📖 Overview
+[Video demos](#video-demos) · [Quick start](#quick-start) · [Architecture](#agent-harness-architecture) · [Status](#current-status) · [Roadmap](./docs/ROADMAP.md)
 
-**LeonTV** is a desktop AI video creation platform built on the MIT-licensed XiaoYunQue codebase. It retains the six-stage generation pipeline and adds a project workspace and freeform canvas. The original copyright and license notices remain in [LICENSE](./LICENSE). See the [development roadmap](./docs/DEVELOPMENT-ROADMAP-LeonTV.md) for current progress.
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square)
+![Next.js](https://img.shields.io/badge/Next.js-16-111111?style=flat-square)
+![Local first](https://img.shields.io/badge/Local-first-0F766E?style=flat-square)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
-It is not a single-shot "text-to-video" black box, but a full pipeline:
+</div>
 
-```
-Script → Character/Scene Design → Storyboard → Reference Images → Video Generation → Post-production
-```
+Leon TV is a locally hosted AI video workspace evolving toward an **Agent Harness**: a runtime that connects planning, model and tool calls, context, execution state, quality feedback and human acceptance.
 
-Each stage is handled by a dedicated agent; the output of one stage drives the next, and every key checkpoint is visualizable, editable, and resumable after changes — more like a **collaborative AI directing team** than a one-shot tool.
+The application currently provides a six-stage creative workflow, a node canvas, individual generation tools and specialized video pipelines. Real image generation and a two-model video trial have been completed. Durable state, bounded repairs, budget protection and recovery have separate experimental implementations; a fully autonomous product workflow is still under development. See the [architecture guide](./docs/ARCHITECTURE.md) for implementation boundaries.
 
-This is an **early v0.1.0 preview** for desktop browsers on your own machine. The project workspace and canvas can be explored without model keys. Real image and video generation requires your own provider credentials and may incur provider charges. See the roadmap for current limitations.
+## Video demos
 
----
+These are real API-generated outputs using the same scene, reference image and first-attempt prompt. The motion preview shows MiniMax H3 on the left and Seedance 2.5 on the right. Full files include their generated audio.
 
-## ✨ Features
+[![Real two-model video preview](./docs/assets/demos/two-model-preview.gif)](./docs/DEMO.md)
 
-| Capability | Description |
-| --- | --- |
-| 🎬 **End-to-end generation** | One pipeline connecting script, characters, storyboard, reference images, video clips and post-production. |
-| 🖼️ **Storyboard-driven control** | Structured scripts, storyboard planning and reference images keep character consistency, shot language and visual style stable and controllable. |
-| ✍️ **Editable, continuable, resumable** | Smart continuation of plot/storyboard, and regeneration after edits at the character / reference / video stages. |
-| 🧩 **Pluggable models** | LLM / VLM / image / video stages can switch across providers (DashScope, Volcengine ARK, Kling, OpenAI, Gemini, DeepSeek, …). |
-| 📲 **Local deployment & asset retention** | Backend + web frontend run locally, with full retention of scripts, images, clips and the final film. |
+| MiniMax H3 · 15 seconds | Seedance 2.5 · 15 seconds |
+| :---: | :---: |
+| [![MiniMax H3 output](./docs/assets/demos/minimax-h3-cover.jpg)](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/minimax-h3-15s.mp4) | [![Seedance 2.5 output](./docs/assets/demos/seedance-2.5-cover.jpg)](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/seedance-2.5-15s.mp4) |
+| [Watch the full video](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/minimax-h3-15s.mp4) | [Watch the full video](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/seedance-2.5-15s.mp4) |
 
-### 🎥 Three video generation modes
+Both review exports are **720 × 1280, 9:16, 24 fps, 15 seconds, H.264 + AAC**. They were normalized with FFmpeg after generation and fully decoded for technical validation. These are feasibility samples with known content defects, including unwanted subtitles. Operator coordination and review were involved; the demos do not establish an autonomous product Harness. [Demo notes and file checksums](./docs/DEMO.md).
 
-- **First-frame to video** (recommended, most stable): start from the stage-4 first-frame reference image plus the storyboard prompt.
-- **First-and-last-frame to video**: use the current clip's reference as the first frame and the next clip's reference as the last frame for stronger transitions.
-- **Reference-to-video**: feed character/scene images directly as references to emphasize identity/scene consistency.
+## What you can do
 
----
+| Mode | Use case | Controls |
+| --- | --- | --- |
+| **Six-stage creation** | Develop an idea or story into video | Script, characters and scenes, storyboard, references, clips and editing, with intermediate review |
+| **Node canvas** | Organize text, images, clips and creative relationships | Saved projects, connections, individual node runs, job state and previews |
+| **Generation tools** | Test a prompt or model and make assets | Text-to-image, image-to-image and video generation with asynchronous tasks |
+| **Specialized pipelines** | Explore quick videos, motion transfer and digital humans | Pipeline-specific inputs and model settings; availability depends on the configured provider |
 
-## 🏗️ Architecture
-
-LeonTV uses a **single orchestrator + multi-stage agents** design: one orchestrator drives a state machine, dispatching dedicated agents across 6 stages, each persisting artifacts and waiting for user confirmation.
-
-```
-┌─────────────┐     ┌──────────────────────────────────────────────┐
-│  Frontend    │────▶│  Orchestrator (6-stage state machine)          │
-│ (Next.js)   │◀────│   ├─ ScriptWriterAgent       Script            │
-└─────────────┘     │   ├─ CharacterDesignerAgent  Character/Scene   │
-                    │   ├─ StoryboardAgent          Storyboard        │
-┌─────────────┐     │   ├─ ReferenceGeneratorAgent  Reference images  │
-│ Model layer  │◀───│   ├─ VideoDirectorAgent       Video generation  │
-│ LLM/VLM/img/v│     │   └─ VideoEditorAgent         Post-production   │
-└─────────────┘     └──────────────────────────────────────────────┘
+```text
+Idea / script → Script planning → Characters & scenes → Storyboard
+                                                         ↓
+Edited output ← Video clips ← Reference images ←──────────┘
 ```
 
-- **Backend**: Python + FastAPI. `orchestrator.py` manages the 6-stage state machine and session state; each `*_agent.py` implements one stage; `models/` wraps the LLM / VLM / image / video clients.
-- **Frontend**: Next.js + React — creation workspace, stage confirmation, configuration and asset preview.
-- Backend defaults to `http://localhost:8000`, frontend to `http://localhost:3000`.
+The application saves intermediate results locally. Some character, reference-image and storyboard stages already contain evaluation, validation and bounded correction logic. Model clients separate text, vision, image and video integrations.
 
----
+## Agent Harness architecture
 
-## 🚀 Quick Start
+A Harness manages the environment in which an Agent works: tool access, context, state, budget, checkpoints, quality feedback and recovery. Leon TV aims to support planning, generation, inspection and local repairs within a bounded task, followed by final human acceptance.
 
-### Requirements
+```mermaid
+flowchart TD
+    User[User: brief and final acceptance] --> UI[Workspace / node canvas]
+    UI --> API[FastAPI task and project APIs]
+    API --> Workflow[Current six-stage orchestrator]
+    Workflow --> Agents[Script / characters / storyboard / references / video / editor]
+    Agents --> Models[LLM / vision / image / video adapters]
+    Agents --> Tools[Files / media tools / FFmpeg]
+    Workflow --> Store[Local state and artifacts]
+    Models --> Providers[Configured model providers]
+    Harness[Planned: dynamic planner / tool loop / independent reviewer] -.incremental integration.-> API
+    Runtime[Experiments: budget / receipts / state / recovery / human gates] -.product integration.-> Harness
+```
 
-- **Python 3.10+** (3.12 recommended; some code uses 3.10+ syntax and will not run on 3.9)
-- **Node.js 20.9+** / **npm 9+**
-- **ffmpeg** (for video concatenation and A/V post-processing)
-- [`uv`](https://docs.astral.sh/uv/) recommended for the backend environment
+The current execution layer is a fixed stage state machine. Its stage handlers do not form an independently negotiating Agent team. Harness experiments validate supporting runtime mechanisms separately; the next step is to integrate them into the application APIs and UI. [Architecture details](./docs/ARCHITECTURE.md).
 
-### Option 1: One-click install (recommended)
+## Current status
+
+| Capability | Status | Scope |
+| --- | --- | --- |
+| Six-stage workflow, projects and canvas | Implemented | Local application; generation requires provider credentials |
+| Stage-level evaluation and bounded correction | Partial | Implemented in selected character, reference and storyboard paths |
+| Real image and video output | Demonstrated in this trial | Actual outputs above; not certification of every model or parameter combination |
+| Durable runtime, tool limits, budget and recovery | Experimental | Separate deterministic Harness PoC and controlled API trial |
+| Dynamic planning, independent review and automatic repairs | Planned | Require an integrated production loop and recovery verification |
+| Agent-to-Agent, long-term personal memory, Personal Agent | Future direction | Not currently delivered product capabilities |
+
+## Quick start
+
+Requirements: **Python 3.10+** (3.12 recommended), **Node.js 20.9+**, npm and preferably [uv](https://docs.astral.sh/uv/). Media processing uses system FFmpeg when available, with an `imageio-ffmpeg` binary fallback.
 
 ```bash
 git clone https://github.com/leo-ai-pm/LeonTV.git
 cd LeonTV
-cd xiaoyunque/xiaoyunque
-chmod +x install.sh
+cd "Leon TV/Leon TV"
 ./install.sh
 ```
 
-The installer checks Python / Node.js / npm / ffmpeg, installs backend and frontend dependencies, and copies `backend/config.yaml.example` to `backend/config.yaml`.
+The installer installs dependencies, builds the frontend and creates a local configuration from the empty-key example if needed. On Windows, use `install.bat` in the same directory. See [installation notes](./docs/GETTING_STARTED.md) for manual setup and port configuration.
 
-Skip the frontend build temporarily:
-
-```bash
-XYQ_SKIP_FRONTEND_BUILD=1 ./install.sh
-```
-
-### Option 2: Manual install
+Start each terminal from the **repository root**:
 
 ```bash
-# Backend
-cd xiaoyunque/xiaoyunque/backend
-uv sync --python 3.12          # or: python -m venv venv && pip install -r requirements.txt
-cp config.yaml.example config.yaml   # then fill in API keys & confirm default models
-
-# Frontend (new terminal)
-cd xiaoyunque/xiaoyunque/frontend
-npm install
+# Terminal 1: backend
+cd "Leon TV/Leon TV/backend"
+uv run python api_server.py
 ```
-
-### Run
 
 ```bash
-# Backend
-cd xiaoyunque/xiaoyunque/backend
-uv run python api_server.py            # http://localhost:8000
-
-# Frontend (new terminal)
-cd xiaoyunque/xiaoyunque/frontend
-npm run dev                            # dev mode; or npm run build && npm start
+# Terminal 2: frontend
+cd "Leon TV/Leon TV/frontend"
+npm run dev
 ```
 
-Open **http://localhost:3000** and type your idea to start. API keys and default models can also be set from the frontend **Settings** page.
+Open **http://localhost:3000**. Backend health: **http://127.0.0.1:8000/api/health**.
 
----
+Configure provider credentials and models in Settings, or edit the local `Leon TV/Leon TV/backend/config.yaml`. Start from [`config.yaml.example`](./Leon%20TV/Leon%20TV/backend/config.yaml.example). The real configuration is ignored by Git.
 
-## 🔧 Configuration
+| Provider | Configuration | Integration |
+| --- | --- | --- |
+| OpenAI / Gemini / DeepSeek | `api_providers.openai / gemini / deepseek` | Text and vision, depending on model |
+| DashScope | `api_providers.dashscope` | Qwen and Wan integrations |
+| Volcengine Ark | `api_providers.ark` | Seedream and Seedance integrations |
+| Kling | `api_providers.kling` | Video integration |
+| Tudou API | `api_providers.tudou` | Channel models including this trial's `minimax-h3` and `seedance-2.5` |
 
-Backend config lives in `xiaoyunque/xiaoyunque/backend/config.yaml` (lowercase, hierarchical YAML). Edit it directly or via the frontend **Settings** page.
+Set credentials for the models you select. Supported durations, resolutions, reference modes and audio options vary. Catalog entries do not mean every combination has been tested. See the [model catalog](./Leon%20TV/Leon%20TV/backend/models/config_model.py).
 
-- `api_providers`: keys, base URLs and proxy switches per provider.
-- `models`: default models for the main pipeline (no implicit fallback — missing models raise an error).
-- `generation`: default style, ratio, resolution and video generation mode.
-
-> ⚠️ `config.yaml` is git-ignored — put real keys here and do not commit them.
-
-### Key ↔ provider mapping
-
-| Provider | Field | Typical use |
-| :--- | :--- | :--- |
-| **DashScope** | `dashscope.api_key` | Qwen text, Wan image/video |
-| **Volcengine ARK** | `ark.api_key` | Doubao Seedream images, Seedance video |
-| **Kling** | `kling.access_key` / `secret_key` | Kling video |
-| **OpenAI** | `openai.api_key` | GPT text/vision, OpenAI images |
-| **Gemini** | `gemini.api_key` | Gemini text/vision |
-| **DeepSeek** | `deepseek.api_key` | DeepSeek text |
-
-Only fill in the providers for the models you actually use. The available-model list is defined in `backend/models/config_model.py`.
-
----
-
-## 📁 Outputs
-
-All metadata and generated assets are stored under `xiaoyunque/xiaoyunque/backend/code/`:
+## Repository layout
 
 ```text
-backend/code/
-├── data/sessions/        # session metadata (JSON)
-└── result/
-    ├── image/<session>/  # character/scene assets + storyboard reference images
-    ├── video/<session>/  # generated video clips
-    └── script/           # script / storyboard data
+LeonTV/
+├── README.md / README_EN.md
+├── docs/                          # Public architecture, setup, roadmap and demos
+│   └── assets/demos/               # Actual MP4s, covers and motion preview
+├── Leon TV/
+│   ├── SKILL.md / references/      # Instructions for external Agent callers
+│   └── Leon TV/
+│       ├── backend/
+│       │   ├── api/                # Routes, schemas and project storage
+│       │   ├── core/               # Orchestrator and stage handlers
+│       │   ├── models/             # Model catalog and provider adapters
+│       │   ├── pipelines/          # Specialized workflows
+│       │   ├── prompts/
+│       │   ├── experiments/        # Harness PoC and controlled trial code
+│       │   └── tests/
+│       ├── frontend/              # Next.js and React Flow workspace
+│       └── install.sh / install.bat
+└── tests/                         # Installer checks
 ```
 
----
+Runtime metadata lives under `backend/code/data/`, generated media under `backend/code/result/`, and private experimental state under `backend/harness_data/`. These directories, credentials and private production materials are excluded from publication.
 
-## 🗺️ Roadmap
+## Development and roadmap
 
-See the [development roadmap](./docs/DEVELOPMENT-ROADMAP-LeonTV.md) for LeonTV canvas, asset management and export plans. Upstream agent research directions include:
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development checks. Priorities are:
 
-- [ ] Role-level agents that review each other (screenwriter / director / continuity, each with its own loop & memory)
-- [ ] A dedicated cross-shot continuity agent (character/scene consistency, able to reject & redo)
-- [ ] Concurrent storyboard agents + aggregation (parallel multi-shot generation)
+1. Integrate execution state, budget and quality gates with the application APIs and UI.
+2. Add dynamic planning, real tool feedback, independent review and local repairs.
+3. Verify recovery across disconnects, restarts and uncertain provider acceptance.
+4. Explore Agent collaboration, long-term memory and Personal Agent behavior after the creation loop is reliable.
 
----
+[Milestones and acceptance goals](./docs/ROADMAP.md).
 
-## 🙏 Acknowledgements
+## FAQ
 
-LeonTV continues development of [XiaoYunQue (Innate Labs)](https://github.com/Innate-Labs/xiaoyunque), which is built on the open-source [FilmAgent / Video-Claw](https://github.com/HITsz-TMG/FilmAgent) (MIT License). Thanks to the original authors.
+**Does generation happen entirely locally?** Projects and outputs are local. Remote model calls send the required prompts and assets to the configured provider, whose data policy and billing apply.
 
-## 📄 License
+**Does the canvas run the entire graph automatically?** Nodes are currently run individually with asynchronous job tracking. Automatic DAG planning and execution are not implemented.
 
-[MIT](./LICENSE). Original FilmAgent / Video-Claw and XiaoYunQue (Innate Labs) notices are retained; LeonTV contributors hold copyright in their additions.
+**Can I expose it as a public SaaS?** The current scope is personal local use. Multi-user authentication, tenant isolation, credential hosting and production operations require additional work. Keep the default local binding.
+
+**Are the demos fully accepted?** They demonstrate real generation and valid media files. Known content defects remain, and dialogue and lip synchronization still require human review.
+
+## Origins and license
+
+Leon TV builds on the open-source XiaoYunQue (Innate Labs) and FilmAgent / Video-Claw codebases. Product naming, directories and public entry points use **Leon TV**. Upstream attribution, copyright notices and compatibility identifiers needed for older data are retained.
+
+This repository is published under the [MIT License](./LICENSE), with original and Leon TV contributor notices preserved. The current upstream FilmAgent / Video-Claw project is [HITsz-TMG/VideoClaw](https://github.com/HITsz-TMG/VideoClaw).
