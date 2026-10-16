@@ -27,10 +27,23 @@ Leon TV 是一个本地运行的 AI 视频创作工作台，以 **Agent Harness*
 
 [![Leon TV 两模型真实生成动态预览](./docs/assets/demos/two-model-preview.gif)](./docs/DEMO.md)
 
-| MiniMax H3 · 15 秒 | Seedance 2.5 · 15 秒 |
-| :---: | :---: |
-| [![MiniMax H3 生成画面](./docs/assets/demos/minimax-h3-cover.jpg)](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/minimax-h3-15s.mp4) | [![Seedance 2.5 生成画面](./docs/assets/demos/seedance-2.5-cover.jpg)](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/seedance-2.5-15s.mp4) |
-| [播放完整视频](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/minimax-h3-15s.mp4) | [播放完整视频](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/seedance-2.5-15s.mp4) |
+| 生成模型 | 完整视频 | 仓库副本 |
+| --- | --- | --- |
+| MiniMax H3 | [在线播放 · 15秒](https://github.com/user-attachments/assets/f9f2dc33-182f-47ab-af82-89b0430438e8) | [MP4文件](./docs/assets/demos/minimax-h3-15s.mp4) |
+| Seedance 2.5 | [在线播放 · 15秒](https://github.com/user-attachments/assets/3f925daf-0cf4-498a-b58d-2f83b11b5bb6) | [MP4文件](./docs/assets/demos/seedance-2.5-15s.mp4) |
+
+<details>
+<summary>展开完整视频播放器（含原生音轨）</summary>
+
+**MiniMax H3**
+
+https://github.com/user-attachments/assets/f9f2dc33-182f-47ab-af82-89b0430438e8
+
+**Seedance 2.5**
+
+https://github.com/user-attachments/assets/3f925daf-0cf4-498a-b58d-2f83b11b5bb6
+
+</details>
 
 两条审阅文件均为 **720 × 1280、9:16、24 fps、15 秒、H.264 + AAC**，生成后经过 FFmpeg 规格规范化，并通过完整文件解码检查。它们是技术验证样片，仍有模型自行生成字幕等内容缺陷；本轮由操作侧编排和审查，不代表产品自主 Harness 已验收通过。[查看演示说明与文件校验](./docs/DEMO.md)。
 

@@ -32,7 +32,8 @@
         ],
         "encoding": "JPEG quality=88 optimize=true",
         "sha256": "4735e341d67ae3a011341dac7ecb589594d0ddf9936437bcda4997cade241a4c"
-      }
+      },
+      "github_attachment_url": "https://github.com/user-attachments/assets/f9f2dc33-182f-47ab-af82-89b0430438e8"
     },
     {
       "model": "seedance-2.5",
@@ -60,7 +61,8 @@
         ],
         "encoding": "JPEG quality=88 optimize=true",
         "sha256": "31dd450b5f1c0b942fb8593adadb7631207978a36c382046d2508295724c2f77"
-      }
+      },
+      "github_attachment_url": "https://github.com/user-attachments/assets/3f925daf-0cf4-498a-b58d-2f83b11b5bb6"
     }
   ],
   "motion_preview": {

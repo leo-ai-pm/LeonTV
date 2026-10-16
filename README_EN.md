@@ -27,10 +27,23 @@ These are real API-generated outputs using the same scene, reference image and f
 
 [![Real two-model video preview](./docs/assets/demos/two-model-preview.gif)](./docs/DEMO.md)
 
-| MiniMax H3 · 15 seconds | Seedance 2.5 · 15 seconds |
-| :---: | :---: |
-| [![MiniMax H3 output](./docs/assets/demos/minimax-h3-cover.jpg)](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/minimax-h3-15s.mp4) | [![Seedance 2.5 output](./docs/assets/demos/seedance-2.5-cover.jpg)](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/seedance-2.5-15s.mp4) |
-| [Watch the full video](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/minimax-h3-15s.mp4) | [Watch the full video](https://github.com/leo-ai-pm/LeonTV/blob/main/docs/assets/demos/seedance-2.5-15s.mp4) |
+| Model | Full video | Repository copy |
+| --- | --- | --- |
+| MiniMax H3 | [Watch · 15 seconds](https://github.com/user-attachments/assets/f9f2dc33-182f-47ab-af82-89b0430438e8) | [MP4 file](./docs/assets/demos/minimax-h3-15s.mp4) |
+| Seedance 2.5 | [Watch · 15 seconds](https://github.com/user-attachments/assets/3f925daf-0cf4-498a-b58d-2f83b11b5bb6) | [MP4 file](./docs/assets/demos/seedance-2.5-15s.mp4) |
+
+<details>
+<summary>Expand full video players (with generated audio)</summary>
+
+**MiniMax H3**
+
+https://github.com/user-attachments/assets/f9f2dc33-182f-47ab-af82-89b0430438e8
+
+**Seedance 2.5**
+
+https://github.com/user-attachments/assets/3f925daf-0cf4-498a-b58d-2f83b11b5bb6
+
+</details>
 
 Both review exports are **720 × 1280, 9:16, 24 fps, 15 seconds, H.264 + AAC**. They were normalized with FFmpeg after generation and fully decoded for technical validation. These are feasibility samples with known content defects, including unwanted subtitles. Operator coordination and review were involved; the demos do not establish an autonomous product Harness. [Demo notes and file checksums](./docs/DEMO.md).
 
