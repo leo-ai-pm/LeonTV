@@ -146,8 +146,8 @@ export default function StudioProjects() {
               <button onClick={() => { setTitle(''); setCreateOpen(true); }} className="flex items-center gap-2 rounded-xl bg-[#f4ae79] px-4 py-2.5 text-sm font-semibold text-[#1d2441] hover:bg-[#ffc095]">
                 <LayoutGrid size={17} /> 打开空白画布
               </button>
-              <button onClick={() => router.push('/')} className="flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm text-white hover:bg-white/20">
-                <WandSparkles size={17} /> 从灵感自动生成
+              <button onClick={() => router.push('/creator')} className="flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm text-white hover:bg-white/20">
+                <WandSparkles size={17} /> 填写创作简报
               </button>
               <button onClick={() => void createDemo()} disabled={busyId === 'demo'} className="flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm text-white hover:bg-white/20">
                 <Film size={17} /> {busyId === 'demo' ? '创建中…' : '打开演示项目'}

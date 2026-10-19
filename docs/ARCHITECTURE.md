@@ -6,6 +6,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 
 | 层 | 当前实现 | 不应据此推导的能力 |
 | --- | --- | --- |
+| 创作输入层 | A「放映室」简报入口，剧本、要求及预算草稿的私有持久化、历史版本和冲突处理 | 保存即授权、已开始模型制作、已经形成报价 |
 | 应用执行层 | 六阶段状态机、阶段 Agent、画布与任务 API、模型客户端、FFmpeg | 动态任务分解、自由多 Agent 协商 |
 | 产品运行基础 | Studio 运行验证、正式 Harness API、私有持久状态、幂等键、版本/质量门禁、恢复与测试终审 | 真实模型规划、真实作品质量或生产验收；本切片仅 test/fixture |
 | 独立实验层 | 确定性 Harness PoC；受控真实 API 试制及预算/回执保护 | 正式产品入口已经具备自动规划、独立审查、自动修复 |
@@ -41,6 +42,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | `api/routers/sandbox.py` | 单次图像/视频生成与异步任务 |
 | `api/routers/pipelines.py` | 专项短流程任务 |
 | `api/routers/configuration.py` | 本地模型与服务商配置 |
+| `api/routers/creator.py` | 创作简报的创建、摘要查回、全文及历史读取、显式版本更新；不执行制作 |
 | `api/routers/harness.py` | 零付费测试运行、查回、事件、受控媒体、动作与测试终审 |
 
 自由画布由用户连接并运行节点。节点与连线形成创作关系，前端负责展示运行状态和结果；完整 DAG 的自动调度与自主规划尚未实现。
@@ -52,6 +54,14 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 `backend/media_tools.py` 优先使用系统 FFmpeg，缺失时尝试 `imageio-ffmpeg` 的二进制。模型生成、素材读取、结果下载和本地媒体处理分别保留其成功与失败状态。
 
 外层 `Leon TV/SKILL.md` 和 `references/` 是给外部 Agent 的调用说明，不是产品内已实现的 Skill 发现、加载和沙箱权限系统。
+
+## 创作简报与来源版本
+
+默认入口 `/creator` 使用 A「放映室」布局，保存剧本、制作要求和预算草稿。`/api/creator/briefs` 将正文与不可变逻辑快照保存在私有 `harness_data/creator_briefs/`，列表和按键查回仅返回摘要；正文通过明确的简报 ID 读取。创建、更新请求键及快照在跨进程锁内原子提交，过期版本返回冲突。来源摘要由服务端按原文计算，剧本文本变化才递增来源版本。
+
+浏览器只持久请求键、简报 ID、预期版本及摘要等恢复元数据，正文留在当前编辑器内存与后端。已保存内容可刷新恢复；未提交的输入在刷新后无法保证恢复。版本冲突保留本地稿，需显式核对再保存。
+
+本版固定 15 秒、9:16、写实影视。预算为待定或金额草稿，全部版本恒为 `not_authorized`、`execution_enabled=false`。保存不会创建 Harness run、调用模型、生成媒体或产生费用；Brief 到真实制作运行的连接仍待实现。[D07 接口合同](./CREATOR-BRIEF-API.md)。旧六阶段入口为 `/workflow`，既有根路径 session/stage 深链保持兼容。
 
 ## 产品内 Harness 运行基础
 

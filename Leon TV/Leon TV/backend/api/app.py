@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 from api.routers import (
     configuration_router,
+    creator_router,
     files_router,
     harness_router,
     health_router,
@@ -92,6 +93,7 @@ app.include_router(pipelines_router)
 app.include_router(configuration_router)
 app.include_router(studio_router)
 app.include_router(harness_router)
+app.include_router(creator_router)
 logger.info("API routers registered")
 
 

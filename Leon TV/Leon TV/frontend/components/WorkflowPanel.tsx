@@ -1291,7 +1291,7 @@ export default function WorkflowPanel() {
     abortRef.current?.abort();
     setSessionId(null);
     setActiveStage(null);
-    router.push('/');
+    router.push('/workflow');
   };
 
   // ── 删除历史记录 ──

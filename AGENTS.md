@@ -5,8 +5,11 @@
 - Backend: FastAPI/Pydantic/Python; frontend: Next.js/React/TypeScript/React Flow.
 - Current execution: fixed six-stage workflow with stage handlers and some local review loops.
 - Formal Harness foundation: Studio run-validation panel and `/api/harness/runs` use real private persistence and recovery; actors/media are test fixtures, with zero real model/paid calls. See `docs/HARNESS-RUNTIME-API.md` and `docs/HARNESS-RUNTIME-VALIDATION.md`.
+- Creator intake: `/creator` is the default A Screening Room workspace. `/api/creator/briefs` privately persists scripts, requirements and budget drafts with version/conflict recovery. Saving never creates a run or authorizes execution; see `docs/CREATOR-BRIEF-API.md`. Legacy `/workflow` and root session/stage links remain supported.
 - `experiments/harness_poc` is deterministic; `experiments/tudou_ab` is a controlled trial. Neither establishes a full autonomous product Harness.
 - Product architecture/status: `docs/ARCHITECTURE.md`; priorities: `docs/ROADMAP.md`.
+- User-selected design workflow: UI UX Pro Max for static UI/UX; Emil `animate` and `review-animations` for interaction motion. See `docs/design/DESIGN-WORKFLOW.md`; keep prototypes distinct from delivered production capabilities.
+- Visual direction selected by the latest user instruction on 2026-10-20: A, Screening Room (放映室), with dark surfaces and a focus on video preview and review. This supersedes the earlier B selection. Preserve the autonomous task workflow; keep the canvas and six-stage workflow as advanced entries.
 - Setup: `docs/GETTING_STARTED.md`; checks: `CONTRIBUTING.md`.
 - Backend start: from `Leon TV/Leon TV/backend`, run `uv run python api_server.py` (127.0.0.1:8000).
 - Frontend start: from `Leon TV/Leon TV/frontend`, run `npm run dev` (localhost:3000).

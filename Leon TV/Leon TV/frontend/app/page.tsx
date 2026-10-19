@@ -1,7 +1,7 @@
-'use client';
-
 import { Suspense } from 'react';
+import { redirect } from 'next/navigation';
 import WorkflowPanel from '@/components/WorkflowPanel';
+import { isLegacyWorkflowQuery } from '@/lib/entryRouting';
 
 function Loading() {
   return (
@@ -14,11 +14,11 @@ function Loading() {
   );
 }
 
-export default function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  if (!isLegacyWorkflowQuery(await searchParams)) redirect('/creator');
   return (
     <Suspense fallback={<Loading />}>
       <WorkflowPanel />
     </Suspense>
   );
 }
-

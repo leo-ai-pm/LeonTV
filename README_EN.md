@@ -38,6 +38,7 @@ Both review exports are **720 × 1280, 9:16, 24 fps, 15 seconds, H.264 + AAC**. 
 
 | Mode | Use case | Controls |
 | --- | --- | --- |
+| **Creator brief · Screening Room** | Save a script, requirements and draft budget for later editing | Private persistence, version history, reload recovery and conflict resolution; saving does not authorize or start generation |
 | **Six-stage creation** | Develop an idea or story into video | Script, characters and scenes, storyboard, references, clips and editing, with intermediate review |
 | **Node canvas** | Organize text, images, clips and creative relationships | Saved projects, connections, individual node runs, job state and previews |
 | **Generation tools** | Test a prompt or model and make assets | Text-to-image, image-to-image and video generation with asynchronous tasks |
@@ -79,6 +80,7 @@ The creative execution layer remains a fixed stage state machine. The Harness ru
 
 | Capability | Status | Scope |
 | --- | --- | --- |
+| Creator briefs and draft budgets | Implemented | Default A Screening Room workspace with private persistence and version recovery; autonomous production is not connected |
 | Six-stage workflow, projects and canvas | Implemented | Local application; generation requires provider credentials |
 | Stage-level evaluation and bounded correction | Partial | Implemented in selected character, reference and storyboard paths |
 | Real image and video output | Demonstrated in this trial | Actual outputs above; not certification of every model or parameter combination |

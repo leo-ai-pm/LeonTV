@@ -12,8 +12,9 @@ import BrandMark from '@/components/BrandMark';
 import { APP_PREFERENCE_KEYS, migrateAppPreferences, readAppPreference } from '@/lib/appPreferences';
 
 const NAV_ITEMS = [
+  { href: '/creator', label: '创作简报', icon: Home },
   { href: '/studio', label: '项目工作台', icon: LayoutDashboard },
-  { href: '/', label: '创作首页', icon: Home },
+  { href: '/workflow', label: '六阶段创作', icon: Clapperboard },
   { href: '/sandbox', label: '临时工作台', icon: Hexagon },
   { href: '/pipelines/standard', label: '文艺短视频', icon: Clapperboard },
   { href: '/pipelines/action-transfer', label: '动作迁移', icon: Repeat2 },
@@ -361,6 +362,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   };
 
+  if (pathname === '/creator' || pathname.startsWith('/creator/')) return <>{children}</>;
+
   return (
     <div
       className="xyq-shell min-h-screen bg-gray-50 text-gray-800"
@@ -392,7 +395,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="xyq-sidebar-nav min-h-0 flex-1 overflow-y-auto p-3 space-y-1">
             {NAV_ITEMS.map(item => {
               const Icon = item.icon;
-              const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+              const active = item.href === '/workflow' && pathname === '/' ? true : pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.href}

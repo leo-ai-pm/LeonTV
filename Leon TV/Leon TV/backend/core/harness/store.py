@@ -54,7 +54,7 @@ class HarnessStore:
         self.thread_lock = threading.RLock()
 
     def check_private(self, static_roots):
-        if any(self.root.is_relative_to(Path(p).resolve()) for p in static_roots):
+        if any(self.root.is_relative_to(Path(p).resolve()) or Path(p).resolve().is_relative_to(self.root) for p in static_roots):
             raise HarnessError("PRIVATE_STORAGE_UNAVAILABLE", "Harness storage must be private", 503)
 
     def private_path(self, *parts):
