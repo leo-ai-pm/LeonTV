@@ -169,8 +169,8 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development checks. Priorities are:
 
 **Are the demos fully accepted?** They demonstrate real generation and valid media files. Known content defects remain, and dialogue and lip synchronization still require human review.
 
-## Origins and license
+## License
 
-Leon TV builds on the open-source XiaoYunQue (Innate Labs) and FilmAgent / Video-Claw codebases. Product naming, directories and public entry points use **Leon TV**. Upstream attribution, copyright notices and compatibility identifiers needed for older data are retained.
+LeonTV is developed and maintained by this project's maintainers. Public product entry points use the LeonTV brand.
 
-This repository is published under the [MIT License](./LICENSE), with original and Leon TV contributor notices preserved. The current upstream FilmAgent / Video-Claw project is [HITsz-TMG/VideoClaw](https://github.com/HITsz-TMG/VideoClaw).
+This repository is distributed under the [MIT License](./LICENSE). Required third-party copyright and permission notices remain in the license file. Product naming changes do not alter ownership of incorporated code.

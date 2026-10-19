@@ -190,8 +190,8 @@ LeonTV/
 
 **视频为什么可能不完全遵循要求？** 生成完成与内容合格是两件事。当前样片已暴露字幕和动作偏差，后续通过质量审查、反馈与有界返工逐步解决。
 
-## 来源与许可证
+## 许可证
 
-Leon TV 在 XiaoYunQue（Innate Labs）及 FilmAgent / Video-Claw 的开源基础上继续开发。产品、目录与公开入口统一使用 **Leon TV**；上游来源、版权声明及读取旧数据所需的兼容标识保留。
+LeonTV 由本项目维护者持续开发和维护，产品展示与公开入口使用 LeonTV 品牌。
 
-本仓库按 [MIT License](./LICENSE) 发布，保留原作者及 Leon TV 贡献者的版权声明。上游 FilmAgent / Video-Claw 的现行项目见 [HITsz-TMG/VideoClaw](https://github.com/HITsz-TMG/VideoClaw)。
+本仓库按 [MIT License](./LICENSE) 发布。使用的第三方代码及其必要版权与许可声明以许可证文件为准；产品命名调整不改变这些代码的权利归属。
