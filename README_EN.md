@@ -1,6 +1,6 @@
 <div align="center">
 
-# Leon TV
+# LeonTV
 
 ### An Agent Harness project for AI video creation
 
@@ -17,9 +17,9 @@ Turn ideas and scripts into storyboards, images, video clips and edited output�
 
 </div>
 
-Leon TV is a locally hosted AI video workspace evolving toward an **Agent Harness**: a runtime that connects planning, model and tool calls, context, execution state, quality feedback and human acceptance.
+LeonTV is a locally hosted AI video workspace evolving toward an **Agent Harness**: a runtime that connects planning, model and tool calls, context, execution state, quality feedback and human acceptance.
 
-The application currently provides a six-stage creative workflow, a node canvas, individual generation tools and specialized video pipelines. Real image generation and a two-model video trial have been completed. Durable state, bounded repairs, budget protection and recovery have separate experimental implementations; a fully autonomous product workflow is still under development. See the [architecture guide](./docs/ARCHITECTURE.md) for implementation boundaries.
+The application provides a six-stage creative workflow, a node canvas, individual generation tools and specialized pipelines. Real image generation and a two-model video trial have been completed. **The first Harness runtime foundation is integrated with Studio, formal APIs and private durable storage**, including idempotent creation, lookup, version and quality gates, stop/resume, original-operation reconciliation and test final review. This slice uses zero-cost fixtures; real model planning, independent review and automatic creative repairs remain under development. See the [architecture guide](./docs/ARCHITECTURE.md).
 
 ## Video demos
 
@@ -42,6 +42,7 @@ Both review exports are **720 × 1280, 9:16, 24 fps, 15 seconds, H.264 + AAC**. 
 | **Node canvas** | Organize text, images, clips and creative relationships | Saved projects, connections, individual node runs, job state and previews |
 | **Generation tools** | Test a prompt or model and make assets | Text-to-image, image-to-image and video generation with asynchronous tasks |
 | **Specialized pipelines** | Explore quick videos, motion transfer and digital humans | Pipeline-specific inputs and model settings; availability depends on the configured provider |
+| **Harness run validation** | Check execution, gates and recovery inside a project | Test plans, versions, events, execution limits, reconciliation and test final decisions; no real creative output |
 
 ```text
 Idea / script → Script planning → Characters & scenes → Storyboard
@@ -65,11 +66,14 @@ flowchart TD
     Agents --> Tools[Files / media tools / FFmpeg]
     Workflow --> Store[Local state and artifacts]
     Models --> Providers[Configured model providers]
-    Harness[Planned: dynamic planner / tool loop / independent reviewer] -.incremental integration.-> API
-    Runtime[Experiments: budget / receipts / state / recovery / human gates] -.product integration.-> Harness
+    API --> Runtime[Integrated: Harness test runtime]
+    Runtime --> Private[Private state / keys / events / artifact versions]
+    Runtime --> Fixtures[Test planner / supplier / reviewer]
+    Runtime --> Gates[Quality gates / recovery / test final review]
+    Harness[Next: real planner / tool feedback / independent reviewer] -.integration.-> Runtime
 ```
 
-The current execution layer is a fixed stage state machine. Its stage handlers do not form an independently negotiating Agent team. Harness experiments validate supporting runtime mechanisms separately; the next step is to integrate them into the application APIs and UI. [Architecture details](./docs/ARCHITECTURE.md).
+The creative execution layer remains a fixed stage state machine. The Harness runtime now has a formal product path: only its planner, reviewer and supplier actors are fixtures; the UI, API, persistence and recovery are real implementations. Fixture acceptance does not establish creative quality or a fully autonomous product. [Architecture details](./docs/ARCHITECTURE.md).
 
 ## Current status
 
@@ -78,7 +82,8 @@ The current execution layer is a fixed stage state machine. Its stage handlers d
 | Six-stage workflow, projects and canvas | Implemented | Local application; generation requires provider credentials |
 | Stage-level evaluation and bounded correction | Partial | Implemented in selected character, reference and storyboard paths |
 | Real image and video output | Demonstrated in this trial | Actual outputs above; not certification of every model or parameter combination |
-| Durable runtime, tool limits, budget and recovery | Experimental | Separate deterministic Harness PoC and controlled API trial |
+| Product runtime, version gates and recovery | Integrated in test mode | Studio run-validation panel, formal API and durable storage; no real model or paid calls |
+| Production budget, quality review and repair | Integration pending | Existing adapters and trials do not yet form a complete product loop |
 | Dynamic planning, independent review and automatic repairs | Planned | Require an integrated production loop and recovery verification |
 | Agent-to-Agent, long-term personal memory, Personal Agent | Future direction | Not currently delivered product capabilities |
 
@@ -123,6 +128,16 @@ Configure provider credentials and models in Settings, or edit the local `Leon T
 
 Set credentials for the models you select. Supported durations, resolutions, reference modes and audio options vary. Catalog entries do not mean every combination has been tested. See the [model catalog](./Leon%20TV/Leon%20TV/backend/models/config_model.py).
 
+### Zero-cost run validation
+
+Create or open a canvas project in Studio, then choose **运行验证 · 测试** in the toolbar. Select a scenario to inspect plans, source digests, dependencies, quality verdicts, counters, test media and durable events. Reopen the same project after refresh to retrieve its original run.
+
+Scenarios cover success, bounded repair, unknown/rejected quality, uncertain provider outcomes, exhausted execution limits and recovery checkpoints. Unknown operations must be reconciled before new work. Final test decisions bind the current version and hash.
+
+No model credentials are needed. The paid limit is zero and media is marked TEST. This validates runtime mechanisms; it does not generate real story footage or record production acceptance. [API contract](./docs/HARNESS-RUNTIME-API.md) · [Validation scope](./docs/HARNESS-RUNTIME-VALIDATION.md).
+
+![Harness run validation inside Studio, explicitly in test mode](./docs/assets/runtime/harness-run-test-mode.png)
+
 ## Repository layout
 
 ```text
@@ -135,7 +150,7 @@ LeonTV/
 │   └── Leon TV/
 │       ├── backend/
 │       │   ├── api/                # Routes, schemas and project storage
-│       │   ├── core/               # Orchestrator and stage handlers
+│       │   ├── core/               # Stage handlers and Harness runtime
 │       │   ├── models/             # Model catalog and provider adapters
 │       │   ├── pipelines/          # Specialized workflows
 │       │   ├── prompts/
@@ -146,15 +161,15 @@ LeonTV/
 └── tests/                         # Installer checks
 ```
 
-Runtime metadata lives under `backend/code/data/`, generated media under `backend/code/result/`, and private experimental state under `backend/harness_data/`. These directories, credentials and private production materials are excluded from publication.
+Runtime metadata lives under `backend/code/data/`, generated media under `backend/code/result/`, and private Harness product/experimental state under `backend/harness_data/`. Product-run media is read through controlled ID endpoints. These directories, credentials and private production materials are excluded from publication.
 
 ## Development and roadmap
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for development checks. Priorities are:
 
-1. Integrate execution state, budget and quality gates with the application APIs and UI.
-2. Add dynamic planning, real tool feedback, independent review and local repairs.
-3. Verify recovery across disconnects, restarts and uncertain provider acceptance.
+1. Connect real models and bounded tool feedback to the integrated test runtime.
+2. Add independent review, bounded local repairs and production budget protection.
+3. Verify creative quality, recovery and final human acceptance with real tasks.
 4. Explore Agent collaboration, long-term memory and Personal Agent behavior after the creation loop is reliable.
 
 [Milestones and acceptance goals](./docs/ROADMAP.md).

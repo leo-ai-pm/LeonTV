@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 from api.routers import (
     configuration_router,
     files_router,
+    harness_router,
     health_router,
     pipelines_router,
     sandbox_router,
@@ -56,8 +57,13 @@ def _cors_origins() -> list[str]:
 async def lifespan(app: FastAPI):
     logger.info("Starting Leon TV API")
     logger.info("Code directory mounted at /code: %s", settings.CODE_DIR)
-    yield
-    logger.info("Leon TV API shutdown complete")
+    try:
+        yield
+    finally:
+        from api.routers.harness import shutdown_harness_runtime
+
+        shutdown_harness_runtime()
+        logger.info("Leon TV API shutdown complete")
 
 
 app = FastAPI(title="Leon TV", version="2.0.0", lifespan=lifespan,
@@ -85,6 +91,7 @@ app.include_router(sandbox_router)
 app.include_router(pipelines_router)
 app.include_router(configuration_router)
 app.include_router(studio_router)
+app.include_router(harness_router)
 logger.info("API routers registered")
 
 

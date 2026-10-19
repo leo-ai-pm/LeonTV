@@ -4,6 +4,7 @@
 - Application root: `Leon TV/Leon TV/` from this Git repository root.
 - Backend: FastAPI/Pydantic/Python; frontend: Next.js/React/TypeScript/React Flow.
 - Current execution: fixed six-stage workflow with stage handlers and some local review loops.
+- Formal Harness foundation: Studio run-validation panel and `/api/harness/runs` use real private persistence and recovery; actors/media are test fixtures, with zero real model/paid calls. See `docs/HARNESS-RUNTIME-API.md` and `docs/HARNESS-RUNTIME-VALIDATION.md`.
 - `experiments/harness_poc` is deterministic; `experiments/tudou_ab` is a controlled trial. Neither establishes a full autonomous product Harness.
 - Product architecture/status: `docs/ARCHITECTURE.md`; priorities: `docs/ROADMAP.md`.
 - Setup: `docs/GETTING_STARTED.md`; checks: `CONTRIBUTING.md`.

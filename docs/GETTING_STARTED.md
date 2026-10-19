@@ -108,7 +108,7 @@ npm start
 
 - `backend/code/data/`：会话、画布与异步任务元数据。
 - `backend/code/result/`：生成图片、片段与合成结果。
-- `backend/harness_data/`：实验私有状态、回执和账本。
+- `backend/harness_data/`：Harness 产品运行与实验私有状态、回执和账本。
 
 这些目录被 Git 忽略。备份时同时保存配置与所需项目/媒体；不要删除数据来解决测试或界面状态问题。
 

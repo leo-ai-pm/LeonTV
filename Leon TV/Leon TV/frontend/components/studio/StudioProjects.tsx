@@ -128,7 +128,7 @@ export default function StudioProjects() {
       <div className="mx-auto max-w-[1420px]">
         <header className="mb-7 flex items-start justify-between">
           <div>
-            <div className="mb-2 text-xs font-semibold tracking-[0.2em] text-[#7c859a]">Leon TV · CREATIVE SPACE</div>
+            <div className="mb-2 text-xs font-semibold tracking-[0.2em] text-[#7c859a]">LeonTV · CREATIVE SPACE</div>
             <h1 className="text-[30px] font-semibold tracking-tight">项目工作台</h1>
             <p className="mt-2 text-sm text-[#778097]">把故事、分镜和生成素材放在同一个桌面空间。</p>
           </div>

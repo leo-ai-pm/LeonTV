@@ -10,6 +10,7 @@ import { ArrowLeft, ArrowUpRight, Check, ChevronDown, CircleAlert, Clapperboard,
 import { fetchModelGroupsByType } from '@/lib/modelRegistry';
 import { exportStudioProject, getStudioProject, mediaUrl, saveStudioProject, type StudioEdge, type StudioKind, type StudioNode, type StudioNodeData, type StudioProject } from '@/lib/studioApi';
 import ModelOptions from '@/components/ModelOptions';
+import HarnessRunPanel from '@/components/harness/HarnessRunPanel';
 import type { ProviderGroup } from '@/config/models';
 
 const KIND_LABEL: Record<StudioKind, string> = {
@@ -103,6 +104,7 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
   const [exportError, setExportError] = useState('');
   const [modelGroups, setModelGroups] = useState<Record<'t2i' | 'i2i' | 'video', ProviderGroup[]>>({ t2i: [], i2i: [], video: [] });
   const [defaultModels, setDefaultModels] = useState({ image: '', imageEdit: '', video: '' });
+  const [harnessOpen, setHarnessOpen] = useState(false);
   const nodeRunLocks = useRef(new Set<string>());
   const revisionRef = useRef(0);
   const editSeqRef = useRef(0);
@@ -409,6 +411,7 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
 
   return (
     <div className="studio-editor">
+      {harnessOpen && <HarnessRunPanel key={projectId} projectId={projectId} onClose={() => setHarnessOpen(false)} />}
       <header className="studio-editor-header">
         <button aria-label="返回项目" onClick={() => void leaveCanvas('/studio')} className="studio-icon-button"><ArrowLeft size={18} /></button>
         <div className="studio-header-divider" />
@@ -418,6 +421,7 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
           <button onClick={() => travelHistory('redo')} disabled={!historyCounts.future} title="重做画布结构操作（⌘/Ctrl+Shift+Z）" aria-label="重做" className="studio-icon-button disabled:opacity-35"><Redo2 size={17} /></button>
           {saveState === 'saving' ? <><Loader2 size={14} className="animate-spin" /> 保存中</> : saveState === 'saved' ? <><Check size={15} className="text-[#3a9c88]" /> 已保存</> : saveState === 'error' ? <span className="text-red-600">{saveError}</span> : '待保存'}
           <button onClick={queueSave} className="studio-save-button"><Save size={15} /> 保存</button>
+          <button type="button" onClick={() => setHarnessOpen(true)} className="studio-outline-button">运行验证 <span className="harness-entry-tag">测试</span></button>
           {sourceSessionId && <button onClick={() => void leaveCanvas(`/?session=${encodeURIComponent(sourceSessionId)}`)} className="studio-outline-button">阶段视图 <ArrowUpRight size={15} /></button>}
         </div>
       </header>
@@ -441,7 +445,7 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
             {exporting ? <Loader2 size={15} className="animate-spin" /> : <Film size={15} />}{exporting ? '正在导出…' : '导出 MP4'}
           </button>
           {exportError && <p role="alert" className="mt-2 text-xs leading-5 text-red-600">{exportError}</p>}
-          {exports[0] && <div className="studio-export-preview"><video src={mediaUrl(exports[0].path)} controls preload="metadata" /><a href={mediaUrl(exports[0].path)} download={`${title || 'Leon TV-成片'}.mp4`}><Download size={14} /> 下载最新成片</a></div>}
+          {exports[0] && <div className="studio-export-preview"><video src={mediaUrl(exports[0].path)} controls preload="metadata" /><a href={mediaUrl(exports[0].path)} download={`${title || 'LeonTV-成片'}.mp4`}><Download size={14} /> 下载最新成片</a></div>}
           <p className="studio-toolbox-tip">空格拖动画布 · 滚轮缩放 · 点击节点查看详情 · Delete 删除选中节点</p>
         </aside>
 

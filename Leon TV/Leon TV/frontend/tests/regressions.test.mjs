@@ -216,3 +216,26 @@ test('canvas rejects unsupported duration before submitting instead of silently 
     assert.match(updates.at(-1)?.error || '', /时长/);
   }
 });
+
+const { module: preferences } = await loadModule('lib/appPreferences.ts');
+test('LeonTV preferences migrate legacy state without deleting it or overriding newer choices', () => {
+  const values = new Map([
+    ['xiaoyunque.sidebar-open', 'false'],
+    ['xiaoyunque.dismissed-completed-tasks', '["old-completed-task"]'],
+  ]);
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  assert.equal(preferences.readAppPreference(storage, 'sidebar'), 'false');
+  preferences.migrateAppPreferences(storage);
+  assert.equal(values.get('leontv.sidebar-open'), 'false');
+  assert.equal(values.get('leontv.dismissed-completed-tasks'), '["old-completed-task"]');
+  assert.equal(values.get('xiaoyunque.sidebar-open'), 'false');
+  values.set('leontv.sidebar-open', 'true');
+  preferences.migrateAppPreferences(storage);
+  assert.equal(preferences.readAppPreference(storage, 'sidebar'), 'true');
+});
+
+test('legacy preferences remain readable when migration writes are denied', () => {
+  const storage = { getItem: key => key === 'xiaoyunque.sidebar-open' ? 'false' : null, setItem: () => { throw new Error('read only'); } };
+  assert.doesNotThrow(() => preferences.migrateAppPreferences(storage));
+  assert.equal(preferences.readAppPreference(storage, 'sidebar'), 'false');
+});

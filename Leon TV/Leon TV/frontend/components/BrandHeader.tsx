@@ -10,7 +10,7 @@ export default function BrandHeader() {
         <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity flex-shrink-0">
           <BrandMark size={32} />
           <span className="font-bold text-sm text-gray-800 tracking-tight">
-            Leon TV
+            LeonTV
           </span>
         </Link>
       </header>

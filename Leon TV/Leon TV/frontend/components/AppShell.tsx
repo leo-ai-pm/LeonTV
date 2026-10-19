@@ -9,6 +9,7 @@ import { clearTempCache, fetchPipelineTasks, fetchSandboxTasks, fetchSessions, t
 import { errorMessage } from '@/lib/http';
 import type { SessionSummary } from '@/lib/workflowTypes';
 import BrandMark from '@/components/BrandMark';
+import { APP_PREFERENCE_KEYS, migrateAppPreferences, readAppPreference } from '@/lib/appPreferences';
 
 const NAV_ITEMS = [
   { href: '/studio', label: '项目工作台', icon: LayoutDashboard },
@@ -60,8 +61,6 @@ type RunningTaskItem = {
 };
 
 const WORKFLOW_STAGE_COUNT = 6;
-const COMPLETED_TASK_DISMISS_KEY = 'xiaoyunque.dismissed-completed-tasks';
-const SIDEBAR_OPEN_KEY = 'xiaoyunque.sidebar-open';
 
 function projectTaskFromSession(session: SessionSummary): RunningTaskItem | null {
   const statusMap = session.status || {};
@@ -145,7 +144,7 @@ function sandboxTaskItem(task: SandboxTask): RunningTaskItem {
 function loadDismissedCompletedTasks(): Set<string> {
   if (typeof window === 'undefined') return new Set();
   try {
-    const raw = window.localStorage.getItem(COMPLETED_TASK_DISMISS_KEY);
+    const raw = readAppPreference(window.localStorage, 'dismissed');
     const parsed = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []);
   } catch {
@@ -155,20 +154,20 @@ function loadDismissedCompletedTasks(): Set<string> {
 
 function saveDismissedCompletedTasks(ids: Set<string>) {
   if (typeof window === 'undefined') return;
-  try { window.localStorage.setItem(COMPLETED_TASK_DISMISS_KEY, JSON.stringify(Array.from(ids))); } catch { /* Preferences are optional when browser storage is unavailable. */ }
+  try { window.localStorage.setItem(APP_PREFERENCE_KEYS.dismissed, JSON.stringify(Array.from(ids))); } catch { /* Preferences are optional when browser storage is unavailable. */ }
 }
 
 function loadSidebarOpen(): boolean {
   if (typeof window === 'undefined') return true;
   if (window.innerWidth < 1104) return false;
   let stored: string | null = null;
-  try { stored = window.localStorage.getItem(SIDEBAR_OPEN_KEY); } catch { return true; }
+  try { stored = readAppPreference(window.localStorage, 'sidebar'); } catch { return true; }
   return stored === null ? true : stored === 'true';
 }
 
 function saveSidebarOpen(open: boolean) {
   if (typeof window === 'undefined') return;
-  try { window.localStorage.setItem(SIDEBAR_OPEN_KEY, open ? 'true' : 'false'); } catch { /* Optional preference. */ }
+  try { window.localStorage.setItem(APP_PREFERENCE_KEYS.sidebar, open ? 'true' : 'false'); } catch { /* Optional preference. */ }
 }
 
 function subscribeSidebarPreferences(listener: () => void) {
@@ -323,6 +322,9 @@ function SidebarTaskPanels({ currentPath }: { currentPath: string }) {
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    try { migrateAppPreferences(window.localStorage); } catch { /* Browser storage is optional. */ }
+  }, []);
   const pathname = usePathname();
   const router = useRouter();
   const storedOpen = useSyncExternalStore(subscribeSidebarPreferences, loadSidebarOpen, () => true);
@@ -384,7 +386,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div className="xyq-sidebar-brand flex h-16 items-center px-4 border-b border-gray-100">
             <div className="flex items-center gap-2 min-w-0">
               <BrandMark size={36} />
-              <span className="text-base font-semibold text-gray-900 truncate">Leon TV</span>
+              <span className="text-base font-semibold text-gray-900 truncate">LeonTV</span>
             </div>
           </div>
           <nav className="xyq-sidebar-nav min-h-0 flex-1 overflow-y-auto p-3 space-y-1">

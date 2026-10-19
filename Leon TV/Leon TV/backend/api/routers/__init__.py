@@ -2,6 +2,7 @@
 
 from .configuration import router as configuration_router
 from .files import router as files_router
+from .harness import router as harness_router
 from .health import router as health_router
 from .pipelines import router as pipelines_router
 from .sandbox import router as sandbox_router
@@ -20,4 +21,5 @@ __all__ = [
     "pipelines_router",
     "configuration_router",
     "studio_router",
+    "harness_router",
 ]

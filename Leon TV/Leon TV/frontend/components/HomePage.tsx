@@ -330,7 +330,7 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
         {/* 标题 */}
         <div className="xyq-hero-title text-center mb-10">
           <div className="inline-flex items-center gap-2 mb-3">
-            <h1 className="text-2xl font-medium text-white">Hi，和 Leon TV 一起聊聊创作想法</h1>
+            <h1 className="text-2xl font-medium text-white">Hi，和 LeonTV 一起聊聊创作想法</h1>
           </div>
           <p className="text-sm text-white/75">
             从一句灵感开始，让 AI 陪你完成整部短片

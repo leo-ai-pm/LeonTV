@@ -340,7 +340,7 @@ export default function TopBar({
           <BrandMark size={32} />
           <div className="flex flex-col leading-tight">
             <span className="font-bold text-sm text-gray-800 tracking-tight">
-              Leon TV
+              LeonTV
             </span>
           </div>
         </button>
