@@ -1028,6 +1028,45 @@ body {
 .creator-record { display: grid; gap: 13px; margin-top: 18px; font-size: 12px; }
 .creator-record > div { display: flex; justify-content: space-between; gap: 10px; }
 .creator-record dt { color: var(--creator-muted); }
+.creator-planner { margin-top: 24px; }
+.creator-planner-intake { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 18px; padding: 22px; font-size: 13px; }
+.creator-planner-intake > div { flex: 1 1 280px; }
+.creator-planner-intake > button { flex-shrink: 0; }
+.creator-planner-offline { margin: 0 22px 20px; padding: 15px; border: 1px dashed var(--creator-line); border-radius: 8px; font-size: 12px; }
+.creator-planner-offline > summary { color: var(--creator-muted); }
+.creator-planner-offline .creator-field { width: auto; max-width: 100%; min-width: 180px; }
+.creator-planner-offline .creator-label { margin: 0; }
+.creator-planner-feedback { padding: 0 22px; }
+.creator-planner-feedback:empty { display: none; }
+.creator-planner-grid { display: grid; grid-template-columns: 235px minmax(0,1fr); border-top: 1px solid var(--creator-line); }
+.creator-planner-list { padding: 16px; border-right: 1px solid var(--creator-line); max-height: 650px; overflow-y: auto; }
+.creator-planner-list .creator-list-heading { margin-top: 0; }
+.creator-planner-list .creator-brief-item[aria-current="true"] { background: var(--creator-panel2); border-color: var(--creator-line); color: var(--creator-text); }
+.creator-planner-detail { padding: 23px; min-width: 0; }
+.creator-planner-task-head { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; }
+.creator-planner h3 { font-size: 14px; font-weight: 650; }
+.creator-planner-task-head .creator-badge { margin-top: 10px; }
+.creator-planner-record > div { flex-wrap: wrap; }
+.creator-planner-record dd { text-align: right; flex: 1 1 200px; }
+.creator-planner-difference { margin: 17px 0; padding-left: 12px; border-left: 2px solid var(--creator-warning); color: var(--creator-warning); font-size: 12px; line-height: 1.8; }
+.creator-planner-plan { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--creator-line); }
+.creator-planner-shots { display: grid; gap: 12px; margin-top: 15px; }
+.creator-planner-shots > li { border: 1px solid var(--creator-line); border-radius: 8px; background: var(--creator-field); padding: 16px; }
+.creator-planner-shots header { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; margin-bottom: 12px; }
+.creator-planner-shots dl { display: grid; grid-template-columns: 34px minmax(0,1fr); gap: 10px 14px; font-size: 12px; line-height: 1.8; }
+.creator-planner-shots dt { color: var(--creator-muted); }
+.creator-planner-shots dd, .creator-planner-preserve { white-space: pre-wrap; overflow-wrap: anywhere; }
+.creator-planner code, .creator-planner dd { overflow-wrap: anywhere; }
+.creator-planner .creator-notice { line-height: 1.8; }
+.creator-planner .creator-notice details { width: 100%; }
+.creator-planner .creator-record code { font-size: 11px; }
+.creator-planner .creator-conflict-details .creator-label { margin-top: 18px; }
+.creator-planner h4 { margin-top: 18px; }
+.creator-planner-events { display: grid; gap: 12px; margin: 12px 0; }
+.creator-planner-events li { display: grid; gap: 4px; border-left: 1px solid var(--creator-line); padding-left: 12px; }
+.creator-planner-events time { font-size: 10px; }
+@media (max-width: 800px) { .creator-planner-grid { grid-template-columns: minmax(0,1fr); } .creator-planner-list { max-height: 265px; border-right: 0; border-bottom: 1px solid var(--creator-line); } }
+@media (max-width: 500px) { .creator-planner-intake, .creator-planner-detail { padding: 18px; } .creator-planner-intake > button { width: 100%; } .creator-planner-offline { margin-inline: 18px; } .creator-planner-feedback { padding-inline: 18px; } .creator-planner-record dd { text-align: left; } .creator-planner-shots dl { gap: 8px; } }
 @media (hover: hover) and (pointer: fine) { .creator-brief-item:hover, .creator-list-heading button:hover { background: var(--creator-panel2); } }
 @media (max-width: 700px) { .creator-sidebar { position: static; height: auto; } .creator-brief-nav { max-height: 260px; } }
 @media (prefers-reduced-motion: reduce) { .creator-workspace .animate-spin { animation: none; } }
@@ -1036,3 +1075,6 @@ body {
 @media (hover: hover) and (pointer: fine) { .creator-primary:hover, .creator-secondary:hover { opacity: .87; } .creator-advanced a:hover { color: var(--creator-text); } }
 @media (max-width: 1000px) { .creator-workspace { grid-template-columns: 185px minmax(0,1fr); } .creator-main { padding: 28px 24px; } .creator-top { padding-inline: 24px; } }
 @media (max-width: 700px) { .creator-workspace { display: block; } .creator-sidebar { padding: 17px 20px; gap: 15px; border-right: 0; border-bottom: 1px solid var(--creator-line); } .creator-sidebar-caption, .creator-sidebar-note { display: none; } .creator-advanced { margin: 0; padding-top: 12px; } .creator-advanced:not([open]) { border-top: 0; padding: 0; } .creator-top { padding: 16px 20px; min-height: 60px; } .creator-main { padding: 25px 20px; } .creator-heading { display: block; } .creator-heading > .creator-badge { margin-top: 16px; } }
+/* Planner hit targets must outrank shared Creator controls at every breakpoint. */
+.creator-workspace .creator-planner :is(button, select, summary) { box-sizing: border-box; min-height: 44px; min-block-size: 44px; }
+.creator-workspace .creator-planner summary { display: list-item; padding: 10px 4px; line-height: 1.6; overflow-wrap: anywhere; }

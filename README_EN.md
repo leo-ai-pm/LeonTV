@@ -19,7 +19,7 @@ Turn ideas and scripts into storyboards, images, video clips and edited output�
 
 LeonTV is a locally hosted AI video workspace evolving toward an **Agent Harness**: a runtime that connects planning, model and tool calls, context, execution state, quality feedback and human acceptance.
 
-The application provides a six-stage creative workflow, a node canvas, individual generation tools and specialized pipelines. Real image generation and a two-model video trial have been completed. **The first Harness runtime foundation is integrated with Studio, formal APIs and private durable storage**, including idempotent creation, lookup, version and quality gates, stop/resume, original-operation reconciliation and test final review. This slice uses zero-cost fixtures; real model planning, independent review and automatic creative repairs remain under development. See the [architecture guide](./docs/ARCHITECTURE.md).
+The application provides a six-stage creative workflow, a node canvas, individual generation tools and specialized pipelines. Real image generation and a two-model video trial have been completed. **The first Harness runtime foundation is integrated with Studio, formal APIs and private durable storage**, including idempotent creation, lookup, version and quality gates, stop/resume, original-operation reconciliation and test final review. The Screening Room also connects saved brief revisions to durable planning tasks and a bounded tool-feedback loop. Normal tasks wait for authorization; a separate offline entry substitutes synthetic model responses while exercising the same loop. Real model planning, independent review and automatic creative repairs remain under development. See the [architecture guide](./docs/ARCHITECTURE.md).
 
 ## Video demos
 
@@ -53,13 +53,15 @@ Edited output ← Video clips ← Reference images ←────────�
 
 The application saves intermediate results locally. Some character, reference-image and storyboard stages already contain evaluation, validation and bounded correction logic. Model clients separate text, vision, image and video integrations.
 
+Saved brief versions can be frozen into planning tasks from the creator workspace. Normal tasks remain unauthorized. The advanced offline entry exercises strict tools, bounded repairs and recovery with synthetic responses; it does not generate media. [Planner API](./docs/BRIEF-PLANNER-API.md) · [Validation](./docs/BRIEF-PLANNER-VALIDATION.md).
+
 ## Agent Harness architecture
 
 A Harness manages the environment in which an Agent works: tool access, context, state, budget, checkpoints, quality feedback and recovery. Leon TV aims to support planning, generation, inspection and local repairs within a bounded task, followed by final human acceptance.
 
 ```mermaid
 flowchart TD
-    User[User: brief and final acceptance] --> UI[Workspace / node canvas]
+    User[User: brief and final acceptance] --> UI[Creator brief / advanced canvas]
     UI --> API[FastAPI task and project APIs]
     API --> Workflow[Current six-stage orchestrator]
     Workflow --> Agents[Script / characters / storyboard / references / video / editor]
@@ -67,11 +69,16 @@ flowchart TD
     Agents --> Tools[Files / media tools / FFmpeg]
     Workflow --> Store[Local state and artifacts]
     Models --> Providers[Configured model providers]
+    API --> Brief[Saved brief / frozen revision]
+    Brief --> Planner[Durable planning task]
+    Planner --> Wait[Normal: awaiting authorization]
+    Planner --> Loop[Offline: bounded tool-feedback loop]
+    Loop --> Plan[Structured plan / quality unreviewed]
     API --> Runtime[Integrated: Harness test runtime]
     Runtime --> Private[Private state / keys / events / artifact versions]
     Runtime --> Fixtures[Test planner / supplier / reviewer]
     Runtime --> Gates[Quality gates / recovery / test final review]
-    Harness[Next: real planner / tool feedback / independent reviewer] -.integration.-> Runtime
+    Harness[Next: live model planner / independent reviewer] -.integration.-> Runtime
 ```
 
 The creative execution layer remains a fixed stage state machine. The Harness runtime now has a formal product path: only its planner, reviewer and supplier actors are fixtures; the UI, API, persistence and recovery are real implementations. Fixture acceptance does not establish creative quality or a fully autonomous product. [Architecture details](./docs/ARCHITECTURE.md).
@@ -86,7 +93,8 @@ The creative execution layer remains a fixed stage state machine. The Harness ru
 | Real image and video output | Demonstrated in this trial | Actual outputs above; not certification of every model or parameter combination |
 | Product runtime, version gates and recovery | Integrated in test mode | Studio run-validation panel, formal API and durable storage; no real model or paid calls |
 | Production budget, quality review and repair | Integration pending | Existing adapters and trials do not yet form a complete product loop |
-| Dynamic planning, independent review and automatic repairs | Planned | Require an integrated production loop and recovery verification |
+| Frozen briefs and bounded planner loop | Integrated offline | Real tasks, tools, persistence and recovery with synthetic model responses; valid structure remains unreviewed quality |
+| Live model planning, independent review and automatic repairs | Pending | Require effective authorization, actual cost controls and creative acceptance |
 | Agent-to-Agent, long-term personal memory, Personal Agent | Future direction | Not currently delivered product capabilities |
 
 ## Quick start

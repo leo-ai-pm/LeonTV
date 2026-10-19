@@ -27,6 +27,7 @@ from api.routers import (
     harness_router,
     health_router,
     pipelines_router,
+    planner_router,
     sandbox_router,
     sessions_router,
     stages_router,
@@ -62,7 +63,9 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         from api.routers.harness import shutdown_harness_runtime
+        from api.routers.planner import shutdown_planner_runtime
 
+        shutdown_planner_runtime()
         shutdown_harness_runtime()
         logger.info("Leon TV API shutdown complete")
 
@@ -94,6 +97,7 @@ app.include_router(configuration_router)
 app.include_router(studio_router)
 app.include_router(harness_router)
 app.include_router(creator_router)
+app.include_router(planner_router)
 logger.info("API routers registered")
 
 

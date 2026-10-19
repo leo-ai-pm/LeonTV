@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useSyncExternalStore, type MouseEvent } fro
 import { useRouter, useSearchParams } from 'next/navigation';
 import { FileText, Film, Loader2, Plus, RefreshCw, ShieldCheck } from 'lucide-react';
 import CreatorBriefEditor from './CreatorBriefEditor';
+import BriefPlannerPanel from './BriefPlannerPanel';
 import { CreatorBriefController } from '@/lib/creatorBriefController';
 import type { CreatorBriefDetail, CreatorEditorFields } from '@/lib/creatorBriefTypes';
 
@@ -76,10 +77,11 @@ export default function CreatorWorkspace() {
         <CreatorBriefEditor fields={state.fields} onChange={patch => controller.edit(patch)} onSave={save} busy={state.saving} disabled={state.loading || Boolean(state.pending) || state.conflictDetected || Boolean(document && !document.is_current) || Boolean(document && !state.dirty)} readOnly={state.loading} revision={document?.revision} dirty={state.dirty} fieldErrors={state.fieldErrors} />
         <aside className="creator-right">
           <section className="creator-panel creator-panel-body"><h2>成片还没有开始</h2><div className="creator-media-empty"><Film size={33} strokeWidth={1.2} /><p>未来成片将在这里呈现</p><span>真实制作与看片待接入</span></div><p className="creator-muted">保存简报不会生成视频。已有画布和六阶段可从高级入口打开。</p></section>
-          <section className="creator-panel creator-panel-body"><h2>先把创作范围留下</h2><ol className="creator-scope"><li><span>01</span><div>保存创作简报<p>剧本、要求与预算草稿</p></div></li><li><span>02</span><div>Agent 规划与制作<p>待接入，不会自动开始</p></div></li><li><span>03</span><div>核验与最终看片<p>待接入，不预先接受</p></div></li></ol><p className="creator-muted creator-safety"><ShieldCheck size={15} />预算是草稿；当前没有制作授权。</p></section>
+          <section className="creator-panel creator-panel-body"><h2>先把创作范围留下</h2><ol className="creator-scope"><li><span>01</span><div>保存创作简报<p>剧本、要求与预算草稿</p></div></li><li><span>02</span><div>准备规划任务<p>下方固定版本，查看待授权状态</p></div></li><li><span>03</span><div>制作与最终看片<p>待接入，不预先接受</p></div></li></ol><p className="creator-muted creator-safety"><ShieldCheck size={15} />预算是草稿；当前没有制作授权。</p></section>
           {document && <section className="creator-panel creator-panel-body"><h2>保存记录</h2><dl className="creator-record"><div><dt>当前简报</dt><dd>v{document.revision}</dd></div><div><dt>来源版本</dt><dd>v{document.source_version}</dd></div><div><dt>正文字符</dt><dd>{document.script_characters}</dd></div><div><dt>预算草稿</dt><dd>{document.budget_cny === null ? '待定' : `¥${document.budget_cny}`}</dd></div><div><dt>制作权限</dt><dd>未授权 · 不执行</dd></div></dl><details className="creator-conflict-details"><summary>查看版本记录</summary>{document.versions.map(version => <p key={version.revision}>简报 v{version.revision} · 来源 v{version.source_version}<br /><time dateTime={version.saved_at}>{new Date(version.saved_at).toLocaleString('zh-CN')}</time></p>)}</details></section>}
         </aside>
       </div>
+      <BriefPlannerPanel briefController={controller} />
     </CreatorFrame>
   );
 }
