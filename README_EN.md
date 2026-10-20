@@ -55,6 +55,8 @@ The application saves intermediate results locally. Some character, reference-im
 
 Saved brief versions can be frozen into planning tasks from the creator workspace. Normal tasks remain unauthorized. The advanced offline entry exercises strict tools, bounded repairs and recovery with synthetic responses; it does not generate media. [Planner API](./docs/BRIEF-PLANNER-API.md) · [Validation](./docs/BRIEF-PLANNER-VALIDATION.md).
 
+Execution controls separate server quotes, scoped consent and starting work. Each request reserves funds with its durable intent; ambiguous receipts keep their holds, and new grants cannot reset past use. Live calls remain disabled by default; the actual control path is tested using synthetic policy and transport. [Execution API](./docs/PLANNER-EXECUTION-API.md) · [Acceptance scope](./docs/PLANNER-EXECUTION-VALIDATION.md).
+
 ## Agent Harness architecture
 
 A Harness manages the environment in which an Agent works: tool access, context, state, budget, checkpoints, quality feedback and recovery. Leon TV aims to support planning, generation, inspection and local repairs within a bounded task, followed by final human acceptance.
@@ -72,6 +74,9 @@ flowchart TD
     API --> Brief[Saved brief / frozen revision]
     Brief --> Planner[Durable planning task]
     Planner --> Wait[Normal: awaiting authorization]
+    Wait --> Control[Separate execution record: quote / grant / reservation]
+    Control --> Synthetic[Single request / receipt / local pricing: synthetic validation]
+    Synthetic --> Plan
     Planner --> Loop[Offline: bounded tool-feedback loop]
     Loop --> Plan[Structured plan / quality unreviewed]
     API --> Runtime[Integrated: Harness test runtime]
@@ -92,7 +97,8 @@ The creative execution layer remains a fixed stage state machine. The Harness ru
 | Stage-level evaluation and bounded correction | Partial | Implemented in selected character, reference and storyboard paths |
 | Real image and video output | Demonstrated in this trial | Actual outputs above; not certification of every model or parameter combination |
 | Product runtime, version gates and recovery | Integrated in test mode | Studio run-validation panel, formal API and durable storage; no real model or paid calls |
-| Production budget, quality review and repair | Integration pending | Existing adapters and trials do not yet form a complete product loop |
+| Planning authorization and cost gates | Validated with synthetic transport | Server quotes, explicit grants, atomic reservations, cumulative limits and receipt reconciliation; local pricing is not a provider bill |
+| Production quality review and repair | Integration pending | Existing adapters and trials do not yet form a complete product loop |
 | Frozen briefs and bounded planner loop | Integrated offline | Real tasks, tools, persistence and recovery with synthetic model responses; valid structure remains unreviewed quality |
 | Live model planning, independent review and automatic repairs | Pending | Require effective authorization, actual cost controls and creative acceptance |
 | Agent-to-Agent, long-term personal memory, Personal Agent | Future direction | Not currently delivered product capabilities |

@@ -2,6 +2,7 @@
 
 from .configuration import router as configuration_router
 from .creator import router as creator_router
+from .execution import router as execution_router
 from .files import router as files_router
 from .harness import router as harness_router
 from .health import router as health_router
@@ -26,4 +27,5 @@ __all__ = [
     "harness_router",
     "creator_router",
     "planner_router",
+    "execution_router",
 ]

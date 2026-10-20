@@ -1,0 +1,75 @@
+'use client';
+
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { RefreshCw, ShieldCheck } from 'lucide-react';
+import type { PlannerDetail } from '@/lib/briefPlannerTypes';
+import { PlannerExecutionController, executionHasUnknownCall } from '@/lib/plannerExecutionController';
+import type { ExecutionStatus } from '@/lib/plannerExecutionTypes';
+import PlannerExecutionSection from './PlannerExecutionSection';
+
+const states: Record<ExecutionStatus, string> = { not_authorized: '等待规划授权', ready: '已授权 · 等待开始规划', queued: '规划已排队', running: '正在规划', stopped: '规划已暂停', blocked: '规划暂不可继续', needs_reconciliation: '回执待核对 · 预占保留', plan_ready: '镜头计划结构合格 · 质量未审核' };
+const reasons: Record<string, string> = {
+  LIVE_DISABLED: '真实模型调用尚未开放。当前可查看记录，暂不能获取报价、授权或开始规划。', POLICY_UNAVAILABLE: '模型与费用策略尚未就绪，暂不能获取报价、授权或开始规划。',
+  AUTHORIZATION_REQUIRED: '需要核对有效报价并明确授权；预算草稿不构成执行许可。', STOPPED: '已暂停后续新提交，不代表取消已在途调用。', RECOVERY_REQUIRES_RESUME: '记录已恢复，等待明确续行，不会自动开始。',
+  GRANT_REVOKED: '授权已撤销，阻止后续新提交；在途调用及未决预占保留。', GRANT_EXPIRED: '授权已过期，不能用于新的提交。', POLICY_STALE: '报价或授权所绑定策略已变化，请重新核对。',
+  BUDGET_EXHAUSTED: '累计本地计价和预占已触及金额上限，不会通过换授权重置。', CALL_LIMIT: '已触及累计调用上限，停启或换授权不会减去已提交调用。',
+  STEP_LIMIT: '已达到规划步数上限。', REPAIR_LIMIT: '已达到有限修正上限。', CONTEXT_LIMIT: '已达到上下文大小上限。',
+  RESPONSE_UNCONFIRMED: '调用结果未确认，保留预占，禁止自动重发或清零。', RECEIPT_INCOMPLETE: '回执信息不完整，金额和用量不能按0处理，预占保留。',
+  RECEIPT_OUT_OF_BOUNDS: '回执用量超出许可边界，保留预占并等待核对。', RECEIPT_TRUNCATED: '回执被截断或未正常结束，保留预占并等待核对。', MODEL_MISMATCH: '响应模型与许可不一致，保留预占并等待核对。',
+};
+const resourceStatus: Record<string, string> = { valid: '有效', active: '有效', expired: '已过期', revoked: '已撤销', policy_stale: '策略已变化' };
+const operationStatus: Record<string, string> = { submitting: '已提交意图', received: '回执已持久化', settled: '已完成本地计价', needs_reconciliation: '待核对' };
+const receiptStatus: Record<string, string> = { none: '无确认回执', received: '已收到回执', confirmed_local: '已本地确认（非供应商账单）', unconfirmed: '回执未确认' };
+const time = (s: string | null) => s ? new Date(s).toLocaleString('zh-CN') : '尚无记录';
+const amount = (s: string | null) => s === null ? '未确认' : `¥${s}`;
+
+export default function PlannerExecutionPanel({ task }: { task: PlannerDetail }) {
+  const controller = useMemo(() => new PlannerExecutionController(() => window.localStorage), []);
+  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getServerSnapshot);
+  useEffect(() => { void controller.initialize(task); }, [controller, task]);
+  useEffect(() => () => controller.invalidate(), [controller]);
+  const execution = state.execution;
+  const executionId = execution?.task_id, executionStatus = execution?.status;
+  useEffect(() => {
+    if (!executionId || !executionStatus || !['queued','running'].includes(executionStatus) || state.error) return;
+    let active = true, timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      if (!active) return;
+      if (!document.hidden) await controller.refresh();
+      if (active && !controller.getSnapshot().error) timer = setTimeout(poll, 2000);
+    };
+    timer = setTimeout(poll, 2000);
+    return () => { active = false; clearTimeout(timer); };
+  }, [controller, executionId, executionStatus, state.error]);
+  const quote = execution?.quotes.find(q => q.id === state.quoteId);
+  const pending = state.pending;
+  const blocked = state.busy || state.loading || state.refreshing || Boolean(pending) || state.storageBlocked || Boolean(state.error);
+  const policyAvailable = Boolean(state.policy?.available && execution?.policy_available);
+  const quoteGate = controller.quoteGate();
+  const synthetic = execution?.environment === 'synthetic_test' || state.policy?.environment === 'synthetic_test';
+  return <PlannerExecutionSection busy={state.busy || state.loading || state.refreshing}>
+    <div className="creator-execution-heading"><p className="creator-badge" role="status">{execution ? states[execution.status] : state.loading ? '正在读取规划记录…' : '规划记录暂不可用'}</p><button type="button" className="creator-secondary" disabled={state.busy || state.loading || state.refreshing} onClick={() => void controller.refresh()}><RefreshCw size={14} />刷新规划记录</button></div>
+    {synthetic && <p className="creator-notice">合成响应验证：授权、额度与恢复由实际代码处理；模型返回为测试数据，没有真实模型调用或费用。</p>}
+    {!policyAvailable && !state.loading && <p className="creator-notice">{reasons[state.policy?.blocked_reason || execution?.blocked_reason || 'POLICY_UNAVAILABLE'] || reasons.POLICY_UNAVAILABLE}</p>}
+    {policyAvailable && execution?.blocked_reason && <p className="creator-notice">{reasons[execution.blocked_reason] || '规划暂不可继续，请核对提示与记录。'}</p>}
+    {state.notice && <p role="status" className="creator-notice">{state.notice}</p>}
+    {state.error && <div role="alert" className="creator-notice creator-notice-error"><p>{state.error}</p><button type="button" className="creator-secondary" disabled={state.busy || state.refreshing} onClick={() => { if (pending || state.storageBlocked) void controller.recover(false); else void controller.refresh(); }}>重新查询规划记录</button></div>}
+    {pending && <section className="creator-notice" aria-label="原规划操作待确认"><h4>原规划操作待确认</h4><p>类型：{pending.kind === 'quote' ? '报价' : pending.kind === 'grant' ? '授权' : pending.kind === 'revoke' ? '撤销' : pending.request.action === 'resume' ? '开始 / 续行' : pending.request.action === 'stop' ? '暂停' : '持久回执核对'}；原规划记录版本 v{pending.request.expected_execution_revision}。查回和确认不换键、不改原版本或报价引用，不清除未决预占。</p>{pending.task_id !== task.id && <p>此原请求属于另一条任务。恢复不会切换当前冻结来源。</p>}<details><summary>原请求绑定</summary><p>任务：<code>{pending.task_id}</code><br />原键：<code>{'client_request_key' in pending.request ? pending.request.client_request_key : pending.request.client_action_key}</code><br />来源快照：<code>{pending.snapshot_hash}</code>{pending.kind === 'grant' && <><br />报价：<code>{pending.request.quote_id}</code><br />披露：<code>{pending.request.accepted_disclosure_hash}</code></>}</p></details><div className="creator-action-row"><button type="button" className="creator-secondary" disabled={state.busy} onClick={() => void controller.recover(false)}>查询原规划操作</button><button type="button" className="creator-secondary" disabled={state.busy} onClick={() => void controller.recover(true)}>按原键确认规划操作</button></div></section>}
+    {state.busy && <p role="status" className="creator-muted">正在确认规划操作，原键已保留…</p>}
+    {execution && <>
+      <p className="creator-muted">规划记录 v{execution.revision} · 冻结简报 v{execution.source.brief_revision}。此记录使用已冻结版本，后续改稿不会更新它。</p>
+      <section className="creator-execution-block" aria-labelledby="execution-quote-heading"><div className="creator-execution-heading"><h4 id="execution-quote-heading">1. 核对服务端报价</h4><button type="button" className="creator-secondary" disabled={blocked || !policyAvailable} onClick={() => void controller.requestQuote()}>获取服务端报价</button></div><p className="creator-muted">报价不授权、不开始。金额与调用数是任务累计限额，换授权不会重置已用金额或未决预占。</p>
+        {execution.quotes.length > 0 && <><label className="creator-label" htmlFor="execution-quote">查看报价记录</label><select id="execution-quote" className="creator-field" value={state.quoteId || ''} disabled={state.busy} onChange={e => controller.chooseQuote(e.target.value)}>{execution.quotes.map(q => <option key={q.id} value={q.id}>{time(q.created_at)} · {resourceStatus[q.status]} · 累计上限{amount(q.total_limit_cny)}</option>)}</select></>}
+        {quote ? <div className="creator-execution-disclosure"><dl className="creator-record"><div><dt>任务 / 来源</dt><dd>任务 v{quote.planner_task_revision} / 冻结简报 v{execution.source.brief_revision}</dd></div><div><dt>供应商 / 模型</dt><dd>{quote.policy.provider} / {quote.policy.model}</dd></div><div><dt>端点（固定，不可编辑）</dt><dd><code>{quote.policy.endpoint}</code></dd></div><div><dt>报价 / 策略版本</dt><dd>{resourceStatus[quote.status]} / {quote.policy.version}</dd></div><div><dt>任务累计上限 / 调用上限</dt><dd>{amount(quote.total_limit_cny)} / {quote.max_calls}次</dd></div><div><dt>账户累计上限 / 调用上限</dt><dd>{amount(quote.policy.account_limit_cny)} / {quote.policy.account_max_calls}次</dd></div><div><dt>每次保守预占上界</dt><dd>{amount(quote.per_call_hold_cny)}</dd></div><div><dt>输入 / 输出费率</dt><dd>¥{quote.policy.input_cny_per_million} / ¥{quote.policy.output_cny_per_million} 每百万token</dd></div><div><dt>单次输入 / 输出上限</dt><dd>{quote.policy.max_input_tokens} / {quote.policy.max_output_tokens} token；{quote.policy.max_input_bytes} / {quote.policy.max_output_bytes} 字节</dd></div><div><dt>单次请求时限</dt><dd>{quote.policy.request_deadline_seconds} 秒</dd></div><div><dt>报价有效期</dt><dd>{time(quote.expires_at)}</dd></div><div><dt>策略有效期</dt><dd>{time(quote.policy.valid_until)}</dd></div></dl><p className="creator-muted">外发范围：将当前任务冻结简报（含剧本、制作要求）和工具历史发送给上面的指定供应商与模型；不包含媒体生成授权。</p><details className="creator-conflict-details"><summary>核验报价、披露与计价依据</summary><p>报价ID：<code>{quote.id}</code><br />披露摘要：<code>{quote.disclosure_hash}</code><br />冻结摘要：<code>{quote.snapshot_hash}</code><br />策略摘要：<code>{quote.policy.policy_hash}</code></p><p>计价依据：{quote.policy.pricing_basis}<br />输入上界依据：{quote.policy.input_bound_basis}</p></details></div> : <p className="creator-muted">暂无报价；未配置有效服务端策略时不能创建。</p>}
+      </section>
+      <section className="creator-execution-block" aria-labelledby="execution-grant-heading"><h4 id="execution-grant-heading">2. 明确授权范围</h4>{quoteGate && <p id="execution-grant-gate" className="creator-muted">{quoteGate}</p>}<label className="creator-execution-consent"><input type="checkbox" checked={Boolean(state.reviewed)} disabled={blocked || Boolean(quoteGate)} onChange={event => controller.reviewQuote(event.target.checked)} /><span>我已核对本报价的冻结来源、指定模型、端点、累计限额、有效期及外发范围，并同意按该披露授权。</span></label><button type="button" className="creator-secondary" disabled={blocked || Boolean(quoteGate) || !state.reviewed} aria-describedby={quoteGate ? 'execution-grant-gate' : undefined} onClick={() => void controller.grant()}><ShieldCheck size={14} />确认授权此报价（不开始）</button>
+        {execution.grants.map(g => <div className="creator-execution-grant" key={g.id}><p><strong>{resourceStatus[g.status]}授权</strong>{execution.active_grant_id === g.id ? ' · 当前选中' : ''} · 累计上限{amount(g.total_limit_cny)} / {g.max_calls}次 · 到期{time(g.expires_at)}</p><details className="creator-conflict-details"><summary>核验授权引用</summary><p>授权：<code>{g.id}</code><br />报价：<code>{g.quote_id}</code></p></details>{g.status === 'active' && <button type="button" className="creator-secondary" disabled={blocked} onClick={() => void controller.revoke(g.id)}>撤销此授权</button>}</div>)}<p className="creator-muted">撤销与到期只阻止后续新提交；不取消在途请求、不清未知预占、不承诺退款。</p>
+      </section>
+      <section className="creator-execution-block" aria-labelledby="execution-actions-heading"><h4 id="execution-actions-heading">3. 单独开始规划</h4><p className="creator-muted">只显示当前可用操作。授权成功不会自动开始规划。</p><div className="creator-action-row">{execution.allowed_actions.map(action => <button key={action} type="button" className={action === 'resume' ? 'creator-primary' : 'creator-secondary'} disabled={blocked || action === 'resume' && (!policyAvailable || executionHasUnknownCall(execution)) || action === 'reconcile' && !execution.operations.some(o => o.received_at !== null && o.receipt_status !== 'none')} onClick={() => void controller.action(action)}>{action === 'resume' ? synthetic ? '开始 / 继续合成规划验证' : '开始 / 继续规划' : action === 'stop' ? '暂停后续规划' : '核对已有回执（不发起新调用）'}</button>)}</div>{!execution.allowed_actions.length && <p className="creator-muted">当前没有可用规划操作。</p>}</section>
+      <section className="creator-execution-block" aria-label="费用预占与本地计价"><h4>累计费用与预占</h4>{pending && <p className="creator-notice">规划请求尚未确认。下面保留上次观察值，不代表当前预占为零或已释放；请查回原请求。</p>}<dl className="creator-record creator-execution-ledger"><div><dt>任务本地计价</dt><dd>{amount(execution.ledger.locally_accounted_cny)}</dd></div><div><dt>任务未决预占</dt><dd>{amount(execution.ledger.held_cny)}</dd></div><div><dt>任务累计限额 / 调用数</dt><dd>{amount(execution.ledger.task_limit_cny)} / {execution.ledger.call_count}次（上限{execution.ledger.max_calls ?? '待策略确定'}）</dd></div><div><dt>账户本地计价 / 预占</dt><dd>{amount(execution.ledger.account_locally_accounted_cny)} / {amount(execution.ledger.account_held_cny)}</dd></div><div><dt>账户累计限额 / 调用数</dt><dd>{amount(execution.ledger.account_limit_cny)} / {execution.ledger.account_call_count}次（上限{execution.ledger.account_max_calls ?? '待策略确定'}）</dd></div><div><dt>供应商账单确认</dt><dd>未确认；本地计价不是实际账单</dd></div></dl></section>
+      <section className="creator-execution-block" aria-label="安全调用回执"><h4>调用与回执</h4>{!execution.operations.length && <p className="creator-muted">尚无规划调用记录。</p>}{execution.operations.map(op => <details className="creator-conflict-details" key={op.id}><summary>步骤{op.step} · {operationStatus[op.status]} · {receiptStatus[op.receipt_status]}</summary><dl className="creator-record"><div><dt>预占 / 本地计价</dt><dd>{amount(op.hold_cny)} / {amount(op.locally_accounted_cny)}</dd></div><div><dt>输入 / 输出用量</dt><dd>{op.input_tokens ?? '未确认'} / {op.output_tokens ?? '未确认'} token</dd></div><div><dt>结束原因</dt><dd>{op.finish_reason ?? '未确认'}</dd></div><div><dt>供应商请求ID</dt><dd><code>{op.provider_request_id ?? '未确认'}</code></dd></div><div><dt>响应ID</dt><dd><code>{op.provider_response_id ?? '未确认'}</code></dd></div><div><dt>意图 / 回执时间</dt><dd>{time(op.created_at)} / {time(op.received_at)}</dd></div><div><dt>操作 / 授权 / 报价</dt><dd><code>{op.id} / {op.grant_id} / {op.quote_id}</code></dd></div></dl></details>)}</section>
+      <section className="creator-execution-block" aria-label="镜头计划"><h4>{synthetic ? '合成响应验证镜头计划' : '镜头计划'}</h4>{execution.plan ? <><p className="creator-muted">15秒 · 9:16。结构合格，剧本语义与媒体质量未审核，尚未完成人工验收。</p><ol className="creator-planner-shots">{execution.plan.shots.map(shot => <li key={shot.id}><header><strong>{shot.id}</strong><span>{shot.duration_ms / 1000}秒</span></header><dl><dt>画面</dt><dd>{shot.visual}</dd><dt>运镜</dt><dd>{shot.camera || '未指定'}</dd><dt>声音</dt><dd>{shot.audio || '未指定'}</dd><dt>依赖</dt><dd>{shot.depends_on.join('、') || '无'}</dd></dl></li>)}</ol></> : <p className="creator-muted">暂无镜头计划，后续规划结果会显示在这里。</p>}</section>
+      <details className="creator-conflict-details"><summary>规划安全记录（{state.events.length}）</summary><p>核验信息：环境为 {execution.environment}，按 D09 读取安全元数据，不读取原始上下文、wire或供应商原始回执。</p><ol className="creator-planner-events">{state.events.map(event => <li key={event.sequence}><span>#{event.sequence} · 规划记录 v{event.execution_revision}</span><code>{event.type}{event.code ? ` / ${event.code}` : ''}</code><time dateTime={event.created_at}>{time(event.created_at)}</time></li>)}</ol>{state.moreEvents && <button type="button" className="creator-secondary" onClick={() => void controller.loadEvents()}>读取后续规划记录</button>}</details>
+    </>}
+  </PlannerExecutionSection>;
+}

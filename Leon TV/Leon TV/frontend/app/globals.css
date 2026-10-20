@@ -1078,3 +1078,19 @@ body {
 /* Planner hit targets must outrank shared Creator controls at every breakpoint. */
 .creator-workspace .creator-planner :is(button, select, summary) { box-sizing: border-box; min-height: 44px; min-block-size: 44px; }
 .creator-workspace .creator-planner summary { display: list-item; padding: 10px 4px; line-height: 1.6; overflow-wrap: anywhere; }
+.creator-execution { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--creator-line); }
+.creator-execution > header { margin-bottom: 16px; }
+.creator-execution-footnote { margin-top: 18px; }
+.creator-execution-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 15px; }
+.creator-execution-block { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--creator-line); }
+.creator-execution-block > h4, .creator-execution-block > .creator-execution-heading h4 { margin: 0; }
+.creator-execution .creator-record > div { flex-wrap: wrap; }
+.creator-execution .creator-record dd { flex: 1 1 220px; text-align: right; }
+.creator-execution .creator-label { margin-top: 16px; }
+.creator-execution-consent { display: flex; align-items: center; gap: 12px; min-height: 44px; margin: 16px 0; padding: 12px; border: 1px solid var(--creator-line); border-radius: 8px; font-size: 12px; line-height: 1.8; cursor: pointer; }
+.creator-execution-consent input { flex: 0 0 44px; width: 44px; height: 44px; accent-color: var(--creator-accent); cursor: pointer; }
+.creator-execution-grant { display: grid; justify-items: start; gap: 10px; margin: 18px 0; padding: 14px; border: 1px solid var(--creator-line); border-radius: 8px; font-size: 12px; line-height: 1.8; }
+.creator-execution code, .creator-execution p { overflow-wrap: anywhere; }
+.creator-execution .creator-notice > details { width: 100%; }
+.creator-execution select { font-size: 14px; }
+@media (max-width: 500px) { .creator-execution .creator-record dd { text-align: left; } .creator-execution select { font-size: 16px; } .creator-execution-consent { padding: 8px; gap: 8px; } }

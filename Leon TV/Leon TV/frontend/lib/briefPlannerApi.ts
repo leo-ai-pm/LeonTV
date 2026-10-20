@@ -35,7 +35,7 @@ export function readPlannerSummary(value: unknown): PlannerSummary {
     source: readPlannerSource(d.source), authorization_status: d.authorization_status as PlannerSummary['authorization_status'], execution_enabled: false, quality_status: 'not_reviewed',
     step_count: d.step_count, repair_count: d.repair_count, pending_call: pending, plan_version: d.plan_version };
 }
-function readPlan(value: unknown, snapshot: string): PlannerPlan {
+export function readPlannerPlan(value: unknown, snapshot: string): PlannerPlan {
   const p = object(value);
   if (p.source_snapshot_hash !== snapshot || p.duration_ms !== 15000 || p.ratio !== '9:16' || !Array.isArray(p.shots) || !p.shots.length || p.shots.length > 12) return invalid();
   const shots = p.shots.map(value => {
@@ -62,7 +62,7 @@ export function readPlannerDetail(value: unknown): PlannerDetail {
   if (!key(d.client_request_key) || limits.max_steps !== 6 || limits.max_repairs !== 2 || limits.max_output_bytes !== 65536 || limits.max_context_bytes !== 1048576 || !Array.isArray(d.plan_versions)) return invalid();
   const versions = d.plan_versions.map(v => { const r = object(v); if (!positive(r.version) || !hash(r.plan_hash) || !text(r.created_at)) return invalid(); return { version: r.version, plan_hash: r.plan_hash, created_at: r.created_at }; });
   return { ...summary, client_request_key: d.client_request_key, limits: { max_steps: 6, max_repairs: 2, max_output_bytes: 65536, max_context_bytes: 1048576 },
-    plan: d.plan === null ? null : readPlan(d.plan, summary.source.snapshot_hash), plan_versions: versions };
+    plan: d.plan === null ? null : readPlannerPlan(d.plan, summary.source.snapshot_hash), plan_versions: versions };
 }
 function write(data: Record<string, unknown>): PlannerWrite {
   if (typeof data.replayed !== 'boolean' || !positive(data.applied_revision)) return invalid();

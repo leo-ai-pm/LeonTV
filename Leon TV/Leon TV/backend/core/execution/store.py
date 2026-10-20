@@ -1,0 +1,140 @@
+"""One execution journal is authoritative; no two-file atomicity claim."""
+import copy
+import json
+import os
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
+
+from core.creator.store import ID_RE, KEY_RE, CreatorBriefStore, CreatorError, digest, utc_now
+from core.harness.store import lock_file, unlock_file
+from core.planner.protocol import parse_json
+from core.planner.store import check_source
+
+EMPTY = {"tasks": {}, "quotes": {}, "grants": {}, "operations": {}, "keys": {}, "accounts": {}}
+
+
+def require(condition):
+    if not condition:
+        raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks")
+
+
+def exposure(operation):
+    return operation["local_units"] if operation["status"] == "settled" else operation["hold_units"]
+
+
+def totals(payload, *, task_id=None, account_id=None):
+    ops = [op for op in payload["operations"].values() if (task_id is None or op["task_id"] == task_id) and (account_id is None or op["account_id"] == account_id)]
+    return {"accounted": sum(op["local_units"] for op in ops if op["status"] == "settled"),
+            "held": sum(op["hold_units"] for op in ops if op["status"] != "settled"), "calls": len(ops)}
+
+
+def validate_payload(payload):
+    require(isinstance(payload, dict) and set(payload) == set(EMPTY) and all(isinstance(value, dict) for value in payload.values()))
+    require(len(payload["accounts"]) <= 1)
+    for task_id, task in payload["tasks"].items():
+        require(bool(ID_RE.fullmatch(task_id)) and task["id"] == task_id)
+        check_source(task["source"])
+        require(type(task["revision"]) is int and task["revision"] >= 1 and len(task["events"]) == task["revision"])
+        require(task["source"]["snapshot_hash"] == task["snapshot_hash"])
+        require(type(task["task_limit_units"]) is int and task["task_limit_units"] > 0)
+        amount = totals(payload, task_id=task_id)
+        require(amount["accounted"] + amount["held"] <= task["task_limit_units"] and amount["calls"] <= min(task["max_calls"], 6))
+        for sequence, event in enumerate(task["events"], 1):
+            require(set(event) == {"sequence", "type", "execution_revision", "created_at", "operation_id", "code"} and event["sequence"] == sequence and event["execution_revision"] == sequence)
+    for account_id, account in payload["accounts"].items():
+        require(account["id"] == account_id)
+        amount = totals(payload, account_id=account_id)
+        require(amount["accounted"] + amount["held"] <= account["limit_units"] and amount["calls"] <= account["max_calls"])
+    for op_id, operation in payload["operations"].items():
+        require(bool(ID_RE.fullmatch(op_id)) and operation["id"] == op_id and operation["task_id"] in payload["tasks"])
+        require(operation["account_id"] in payload["accounts"] and operation["grant_id"] in payload["grants"] and operation["quote_id"] in payload["quotes"])
+        require(type(operation["hold_units"]) is int and operation["hold_units"] > 0)
+        require(operation["status"] in {"submitting", "received", "settled", "needs_reconciliation"})
+        require(operation["local_units"] is None or type(operation["local_units"]) is int and 0 <= operation["local_units"] <= operation["hold_units"])
+        require(operation["status"] != "settled" or operation["local_units"] is not None)
+        require(operation["context_hash"] == digest(operation["context"]) and operation["wire_hash"] == digest(operation["wire"]))
+        require(operation["permit_hash"] == digest(operation["permit"]))
+        task, grant, quote = payload["tasks"][operation["task_id"]], payload["grants"][operation["grant_id"]], payload["quotes"][operation["quote_id"]]
+        require(operation["snapshot_hash"] == task["snapshot_hash"] == grant["snapshot_hash"] == quote["snapshot_hash"])
+    for quote_id, quote in payload["quotes"].items():
+        require(quote["id"] == quote_id and quote["task_id"] in payload["tasks"])
+        require(quote["disclosure_hash"] == digest({key: value for key, value in quote.items() if key != "disclosure_hash"}))
+        policy = quote["policy"]
+        require(policy["policy_hash"] == digest({key: value for key, value in policy.items() if key != "policy_hash"}))
+    for grant_id, grant in payload["grants"].items():
+        require(grant["id"] == grant_id and grant["task_id"] in payload["tasks"] and grant["quote_id"] in payload["quotes"])
+        require(grant["snapshot_hash"] == payload["tasks"][grant["task_id"]]["snapshot_hash"])
+    for key, receipt in payload["keys"].items():
+        namespace, _, token = key.partition(":")
+        require(namespace in {"quote", "grant", "revoke", "action"} and bool(KEY_RE.fullmatch(token)))
+        require(receipt["request_hash"] == digest({"key": key, **receipt["request"]}))
+        require(receipt["task_id"] in payload["tasks"] and receipt["request"]["task_id"] == receipt["task_id"])
+
+
+def validate_state(state):
+    require(set(state) == {"schema_version", "head_revision", "head_hash", "frames"} and type(state["schema_version"]) is int and state["schema_version"] == 2)
+    require(isinstance(state["frames"], list) and type(state["head_revision"]) is int and state["head_revision"] == len(state["frames"]))
+    previous = None
+    payload = copy.deepcopy(EMPTY)
+    for revision, frame in enumerate(state["frames"], 1):
+        require(set(frame) == {"revision", "saved_at", "previous_hash", "hash", "delta"} and type(frame["revision"]) is int and frame["revision"] == revision)
+        require(frame["previous_hash"] == previous and frame["hash"] == digest({key: value for key, value in frame.items() if key != "hash"}))
+        require(isinstance(frame["delta"], dict) and set(frame["delta"]) <= set(EMPTY))
+        for namespace, records in frame["delta"].items():
+            require(isinstance(records, dict))
+            payload[namespace].update(copy.deepcopy(records))
+        previous = frame["hash"]
+    require(state["head_hash"] == previous)
+    validate_payload(payload)
+    return payload
+
+
+class ExecutionStore(CreatorBriefStore):
+    @contextmanager
+    def transaction(self):
+        self.path("state.json")
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with self.thread_lock:
+            lock = lock_file(self.path(".state.lock"))
+            try:
+                path = self.path("state.json")
+                try:
+                    state = parse_json(path.read_text(encoding="utf-8")) if path.exists() else {"schema_version": 2, "head_revision": 0, "head_hash": None, "frames": []}
+                    payload = validate_state(state)
+                except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, RecursionError):
+                    raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
+                original = copy.deepcopy(payload)
+                yield payload
+                if payload != original or not path.exists():
+                    validate_payload(payload)
+                    require(all(set(original[namespace]) <= set(payload[namespace]) for namespace in EMPTY))
+                    delta = {}
+                    for namespace, records in payload.items():
+                        changed = {key: copy.deepcopy(value) for key, value in records.items() if key not in original[namespace] or original[namespace][key] != value}
+                        if changed:
+                            delta[namespace] = changed
+                    frame = {"revision": len(state["frames"]) + 1, "saved_at": utc_now(), "previous_hash": state["head_hash"], "delta": delta}
+                    frame["hash"] = digest(frame)
+                    state["frames"].append(frame)
+                    state["head_revision"], state["head_hash"] = frame["revision"], frame["hash"]
+                    fd, temporary = tempfile.mkstemp(prefix=".execution-", dir=self.root)
+                    try:
+                        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                            json.dump(state, stream, ensure_ascii=False, allow_nan=False)
+                            stream.flush()
+                            os.fsync(stream.fileno())
+                        os.replace(temporary, path)
+                    finally:
+                        Path(temporary).unlink(missing_ok=True)
+            finally:
+                unlock_file(lock)
+
+    def execution_lock(self, task_id):
+        if not ID_RE.fullmatch(task_id):
+            raise CreatorError("INVALID_INPUT", "Invalid task ID", 422)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            return lock_file(self.path(f".{task_id}.execution.lock"), blocking=False)
+        except BlockingIOError:
+            return None
