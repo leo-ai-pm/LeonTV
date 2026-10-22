@@ -87,6 +87,8 @@ D08自身的正常任务不签发真实执行授权；D09在独立执行记录�
 
 D10使`wire_api`成为显式服务端策略：保留旧Chat请求和历史摘要，新增Responses固定文本请求，协议同时绑定报价、操作许可和实际wire。无流式、远端会话续链、内置工具或自动fallback。Responses必须完成、无错误、模型与ID匹配，并严格接受单一文本动作；reasoning内容仅私有保留，cached/reasoning计数是总用量子集，不额外相加或扣除。未知用量、工具或计费维度保留预占，不能把返回文本当成已结账。协议适配与供应商实际支持分开验收。[D10合同](./PLANNER-RESPONSES-API.md) · [验证边界](./PLANNER-RESPONSES-VALIDATION.md)。
 
+D11增加固定Chat输出参数；D12补未确认操作的私有诊断，新初始提示提供与实际工具同源的参数结构。真实Gemini续试已核费，但格式／参数校验未通过，旧未知风险仍保留；生产关闭，尚无正式分镜质量通过。[最新验证](./PLANNER-RECOVERY-VALIDATION.md)。总控委派、独立审阅、版本化局部返工及最终人工验收已确认为[自主协作目标](./AUTONOMOUS-COLLABORATION-GOAL.md)，目标与已实现运行能力分开。
+
 ## 产品内 Harness 运行基础
 
 Studio 画布右上角的「运行验证 · 测试」连接 `/api/harness/runs`。`core/harness/` 使用真实文件存储与后台执行器，只有 Planner、供应商和 Reviewer 使用确定性测试实现。测试媒体为专用 TEST 合成片段，不引用旧付费样片。

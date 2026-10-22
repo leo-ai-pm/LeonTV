@@ -1,6 +1,7 @@
 # Leon TV repository guide
 
 - Product: local AI video workspace evolving toward an Agent Harness.
+- Confirmed product goal (2026-10-22): bounded autonomous collaboration through controller delegation, production roles, independent review, versioned context, inherited budgets/permissions, local repair, unknown-state recovery and final human acceptance; implementation and product acceptance remain pending (see `docs/AUTONOMOUS-COLLABORATION-GOAL.md`).
 - Application root: `Leon TV/Leon TV/` from this Git repository root.
 - Backend: FastAPI/Pydantic/Python; frontend: Next.js/React/TypeScript/React Flow.
 - Current execution: fixed six-stage workflow with stage handlers and some local review loops.
@@ -11,6 +12,7 @@
 - Responses planning: D10 adds an explicit server-owned text protocol, stateless non-streaming requests and conservative reasoning/cache usage handling. Legacy chat hashes remain intact; there is no protocol/model fallback or automatic live enablement. See `docs/PLANNER-RESPONSES-API.md` and `docs/PLANNER-RESPONSES-VALIDATION.md`.
 - Gemini empirical pilot: two real text probes on 2026-10-22 matched platform charges totaling CNY 0.001132. Reported completion usage exceeded requested max_tokens (128→140, 1→157); offline replay through production normalization rejects both receipts at those limits. Customer-support confirmation is not required for authorized small empirical probes, but empirical risk reservations must not be labeled certified billing bounds. No script/production Planner run or live production enablement occurred; see `docs/GEMINI-TEXT-PILOT-VALIDATION.md`.
 - D11 adds server-owned Chat output parameter selection with legacy hash/wire compatibility and read-only frontend projections. Later max_completion_tokens probes also failed to establish a hard usage bound (1→531). Independent M01 pilot completed the read-source action; its second call has no HTTP receipt and remains unknown with its reservation retained, no plan or quality pass. Production stays disabled; see `docs/PLANNER-CHAT-OUTPUT-VALIDATION.md` for this later scope, fees and recovery boundary.
+- D12 adds fixed private transport diagnostics without public projection, billing, retry or legacy changes. Two explicitly bounded continuation calls received receipts but failed tool envelopes; exact ReadArgs/SubmitArgs schemas now enter new initial contexts only, without relaxing validators. The updated prompt is not yet live-validated. Original unknown risk remains retained; see `docs/PLANNER-RECOVERY-VALIDATION.md` for the latest scope and next acceptance.
 - `experiments/harness_poc` is deterministic; `experiments/tudou_ab` is a controlled trial. Neither establishes a full autonomous product Harness.
 - Product architecture/status: `docs/ARCHITECTURE.md`; priorities: `docs/ROADMAP.md`.
 - User-selected design workflow: UI UX Pro Max for static UI/UX; Emil `animate` and `review-animations` for interaction motion. See `docs/design/DESIGN-WORKFLOW.md`; keep prototypes distinct from delivered production capabilities.

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from core.creator.store import ID_RE, KEY_RE, CreatorBriefStore, CreatorError, digest, utc_now
 from core.execution.policy import chat_output_parameter, wire_api
+from core.execution.transport import TRANSPORT_DIAGNOSTIC_PHASES
 from core.harness.store import lock_file, unlock_file
 from core.planner.protocol import parse_json
 from core.planner.store import check_source
@@ -54,6 +55,12 @@ def validate_payload(payload):
         require(operation["status"] in {"submitting", "received", "settled", "needs_reconciliation"})
         require(operation["local_units"] is None or type(operation["local_units"]) is int and 0 <= operation["local_units"] <= operation["hold_units"])
         require(operation["status"] != "settled" or operation["local_units"] is not None)
+        if "transport_diagnostic" in operation:
+            diagnostic = operation["transport_diagnostic"]
+            require(isinstance(diagnostic, dict) and set(diagnostic) == {"code", "phase"})
+            require(type(diagnostic["code"]) is str and diagnostic["code"] in TRANSPORT_DIAGNOSTIC_PHASES)
+            require(diagnostic["phase"] == TRANSPORT_DIAGNOSTIC_PHASES[diagnostic["code"]])
+            require(operation["status"] == "needs_reconciliation" and operation["raw"] is None and operation["normalized"] is None and operation["local_units"] is None)
         require(operation["context_hash"] == digest(operation["context"]) and operation["wire_hash"] == digest(operation["wire"]))
         require(operation["permit_hash"] == digest(operation["permit"]))
         task, grant, quote = payload["tasks"][operation["task_id"]], payload["grants"][operation["grant_id"]], payload["quotes"][operation["quote_id"]]

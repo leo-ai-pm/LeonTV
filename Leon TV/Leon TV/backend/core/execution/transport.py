@@ -19,9 +19,41 @@ from core.execution.policy import (
 from core.execution.responses import normalized_response, request_wire
 from core.planner.protocol import parse_json
 
+TRANSPORT_DIAGNOSTIC_PHASES = {
+    "PERMIT_REJECTED": "preflight",
+    "CONNECT_TIMEOUT": "connect",
+    "READ_TIMEOUT": "read",
+    "WRITE_TIMEOUT": "write",
+    "POOL_TIMEOUT": "pool",
+    "TRANSPORT_ERROR": "unknown",
+    "OVERALL_DEADLINE": "deadline",
+    "RECEIPT_TOO_LARGE": "receipt",
+}
+
 
 class ResponseUnconfirmed(Exception):
-    pass
+    """Fixed private classification, never an upstream exception message."""
+
+    def __init__(self, code="TRANSPORT_ERROR"):
+        self.code = code if type(code) is str and code in TRANSPORT_DIAGNOSTIC_PHASES else "TRANSPORT_ERROR"
+        self.phase = TRANSPORT_DIAGNOSTIC_PHASES[self.code]
+        super().__init__(self.code)
+
+    @property
+    def diagnostic(self):
+        return {"code": self.code, "phase": self.phase}
+
+
+def unconfirmed_code(error):
+    import httpx
+
+    if isinstance(error, ResponseUnconfirmed):
+        return ResponseUnconfirmed(error.code).code
+    for error_type, code in [(httpx.ConnectTimeout, "CONNECT_TIMEOUT"), (httpx.ReadTimeout, "READ_TIMEOUT"),
+                             (httpx.WriteTimeout, "WRITE_TIMEOUT"), (httpx.PoolTimeout, "POOL_TIMEOUT")]:
+        if isinstance(error, error_type):
+            return code
+    return "TRANSPORT_ERROR"
 
 
 def wire_for(messages, policy):
@@ -38,7 +70,7 @@ class ControlledTransport:
         self.transport = transport
         self.input_bounder = input_bounder
 
-    def perform(self, operation, policy, api_key):
+    def _preflight(self, operation, policy):
         permit = operation["permit"]
         pairs = {"operation_id": "id", "task_id": "task_id", "snapshot_hash": "snapshot_hash", "context_hash": "context_hash", "wire_hash": "wire_hash", "grant_id": "grant_id", "quote_id": "quote_id", "account_id": "account_id", "policy_hash": "policy_hash", "hold_units": "hold_units"}
         valid = operation["permit_hash"] == digest(permit) and all(permit[key] == operation[field] for key, field in pairs.items())
@@ -59,35 +91,50 @@ class ControlledTransport:
         issued = datetime.fromisoformat(permit["issued_at"])
         valid = valid and (deadline - issued).total_seconds() <= policy["request_deadline_seconds"] and deadline <= min(datetime.fromisoformat(policy["valid_until"]), datetime.fromisoformat(permit["grant_expires_at"]), datetime.fromisoformat(permit["quote_expires_at"]))
         if not valid:
-            raise ResponseUnconfirmed("Operation permit binding failed")
+            raise ResponseUnconfirmed("PERMIT_REJECTED")
         remaining = (datetime.fromisoformat(permit["deadline_at"]) - now()).total_seconds()
         if remaining <= 0:
-            raise ResponseUnconfirmed("Operation deadline expired")
+            raise ResponseUnconfirmed("OVERALL_DEADLINE")
+        return remaining, deadline
+
+    def perform(self, operation, policy, api_key):
+        try:
+            remaining, deadline = self._preflight(operation, policy)
+        except ResponseUnconfirmed:
+            raise
+        except Exception:
+            raise ResponseUnconfirmed("PERMIT_REJECTED") from None
         completed, box = threading.Event(), {}
 
         def request_once():
             import httpx
             client = None
             try:
-                if now() >= datetime.fromisoformat(permit["deadline_at"]):
-                    raise ResponseUnconfirmed("Operation deadline expired")
+                if now() >= deadline:
+                    raise ResponseUnconfirmed("OVERALL_DEADLINE")
                 client = httpx.Client(transport=self.transport, timeout=remaining, follow_redirects=False, trust_env=False)
                 with client.stream("POST", policy["endpoint"], content=operation["wire"].encode("utf-8"),
                                    headers={"Content-Type": "application/json", "Authorization": "Bearer " + api_key, "X-Client-Operation-Id": operation["id"]}) as response:
-                    data = bytearray()
-                    for chunk in response.iter_bytes():
-                        if now() >= datetime.fromisoformat(permit["deadline_at"]):
-                            raise ResponseUnconfirmed("Operation deadline expired")
-                        data.extend(chunk)
-                        if len(data) > 1048576:
-                            raise ResponseUnconfirmed("Receipt envelope exceeded")
-                    box["value"] = {"http_status": response.status_code, "headers": {key.lower(): value for key, value in response.headers.items() if key.lower() == "x-request-id"},
-                                    "body_base64": base64.b64encode(data).decode("ascii"), "received_at": utc_now()}
-            except Exception:
-                box["error"] = True
+                    try:
+                        data = bytearray()
+                        for chunk in response.iter_bytes():
+                            if now() >= deadline:
+                                raise ResponseUnconfirmed("OVERALL_DEADLINE")
+                            data.extend(chunk)
+                            if len(data) > 1048576:
+                                raise ResponseUnconfirmed("RECEIPT_TOO_LARGE")
+                        box["value"] = {"http_status": response.status_code, "headers": {key.lower(): value for key, value in response.headers.items() if key.lower() == "x-request-id"},
+                                        "body_base64": base64.b64encode(data).decode("ascii"), "received_at": utc_now()}
+                    except Exception as error:
+                        box["error"] = unconfirmed_code(error)
+            except Exception as error:
+                box.setdefault("error", unconfirmed_code(error))
             finally:
                 if client is not None:
-                    client.close()
+                    try:
+                        client.close()
+                    except Exception as error:
+                        box.setdefault("error", unconfirmed_code(error))
                 completed.set()
 
         # The observer returns at the absolute deadline even if a transport
@@ -95,8 +142,10 @@ class ControlledTransport:
         # its hold remains unresolved and it cannot be resubmitted.
         thread = threading.Thread(target=request_once, name="bounded-text-request", daemon=True)
         thread.start()
-        if not completed.wait(remaining) or box.get("error") or "value" not in box or now() > datetime.fromisoformat(permit["deadline_at"]):
-            raise ResponseUnconfirmed("Response unconfirmed; no automatic retry")
+        if not completed.wait(remaining) or now() >= deadline:
+            raise ResponseUnconfirmed("OVERALL_DEADLINE")
+        if "error" in box or "value" not in box:
+            raise ResponseUnconfirmed(box.get("error", "TRANSPORT_ERROR"))
         return box["value"]
 
 

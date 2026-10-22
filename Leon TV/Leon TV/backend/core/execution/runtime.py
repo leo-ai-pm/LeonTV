@@ -19,7 +19,13 @@ from core.execution.policy import (
     wire_api,
 )
 from core.execution.store import ExecutionStore, totals
-from core.execution.transport import ControlledTransport, normalized, wire_for
+from core.execution.transport import (
+    ControlledTransport,
+    ResponseUnconfirmed,
+    normalized,
+    unconfirmed_code,
+    wire_for,
+)
 from core.harness.store import unlock_file
 from core.planner.protocol import LIMITS, execute_tool
 from core.planner.runtime import SYSTEM
@@ -470,10 +476,12 @@ class ExecutionRuntime:
                     self.bump(task, "operation_reserved", operation_id=operation_id)
                 try:
                     raw = ControlledTransport(self.transport, self.input_bounder).perform(copy.deepcopy(operation), policy, self.api_key)
-                except Exception:
+                except Exception as error:
+                    diagnostic = ResponseUnconfirmed(unconfirmed_code(error)).diagnostic
                     with self.store.transaction() as payload:
                         task, current = payload["tasks"][task_id], payload["operations"][operation_id]
                         current["status"] = "needs_reconciliation"
+                        current["transport_diagnostic"] = diagnostic
                         task["status"] = "stopped" if task["status"] == "stopped" else "needs_reconciliation"
                         task["reason"] = "RESPONSE_UNCONFIRMED"
                         self.bump(task, "response_unconfirmed", task["reason"], operation_id)
