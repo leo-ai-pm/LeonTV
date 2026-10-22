@@ -105,6 +105,18 @@ def validate_state(state):
 
 
 class ExecutionStore(CreatorBriefStore):
+    def read_only(self):
+        """Atomic file snapshots need no write lock or recovery side effects."""
+        from core.execution.receipts import read_json
+
+        path = self.path("state.json")
+        if not path.exists():
+            return copy.deepcopy(EMPTY)
+        try:
+            return validate_state(read_json(path, maximum=64 * 1048576))
+        except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, OSError, RecursionError):
+            raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
+
     @contextmanager
     def transaction(self):
         self.path("state.json")

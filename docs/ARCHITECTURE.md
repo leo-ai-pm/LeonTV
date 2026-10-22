@@ -89,6 +89,8 @@ D10使`wire_api`成为显式服务端策略：保留旧Chat请求和历史摘要
 
 D11增加固定Chat输出参数；D12补未确认操作的私有诊断及完整工具参数提示；D13增加显式开启的固定字段诊断，正式调用默认反馈与判据保持兼容。新任务实际读取来源成功，提交时120秒无回执而停止，两条未知风险保留；生产关闭，尚无正式分镜质量通过。[最新验证](./PLANNER-CONTRACT-VALIDATION.md)。总控委派、独立审阅、版本化局部返工及最终人工验收已确认为[自主协作目标](./AUTONOMOUS-COLLABORATION-GOAL.md)，目标与已实现运行能力分开。
 
+D14增加服务端显式开启的独立回执采集：先持久化原许可和调用意图，再启动独立解释器，完整记录与提交凭据落盘后才通知观察者。原截止时间与有界清理窗口限制采集；迟到或冲突证据保持隔离。新增 `GET /api/planner/tasks/{task_id}/execution/operations/{operation_id}/receipts/inspect` 和本地 inspect CLI，仅读取已有快照与证据，不走旧查看接口的恢复事务，也不结算、释放预留或继续执行。合成故障验收已通过，默认关闭，生产未启用；旧未知没有因此恢复，也无新的真实分镜或内容接受。[实现合同](./PLANNER-RECEIPT-RECOVERY-API.md) · [最新验证](./PLANNER-RECEIPT-RECOVERY-VALIDATION.md)。
+
 ## 产品内 Harness 运行基础
 
 Studio 画布右上角的「运行验证 · 测试」连接 `/api/harness/runs`。`core/harness/` 使用真实文件存储与后台执行器，只有 Planner、供应商和 Reviewer 使用确定性测试实现。测试媒体为专用 TEST 合成片段，不引用旧付费样片。

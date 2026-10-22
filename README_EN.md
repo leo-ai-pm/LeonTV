@@ -100,13 +100,16 @@ The creative execution layer remains a fixed stage state machine. The Harness ru
 | Real image and video output | Demonstrated in this trial | Actual outputs above; not certification of every model or parameter combination |
 | Product runtime, version gates and recovery | Integrated in test mode | Studio run-validation panel, formal API and durable storage; no real model or paid calls |
 | Planning authorization and cost gates | Validated with synthetic transport | Server quotes, explicit grants, atomic reservations, cumulative limits and receipt reconciliation; local pricing is not a provider bill |
+| Detached receipt capture and read-only inspection | Synthetic fault acceptance passed | Explicit opt-in, durable commit before notification, bounded collection after observer exit and isolated late evidence; inspection cannot resubmit or settle; capture off by default |
 | Chat / Responses text protocols | Explicit server adapters | Fixed protocol and model without fallback; stateless text requests and conservative reasoning/cache usage handling; live channel validation pending |
 | Production quality review and repair | Integration pending | Existing adapters and trials do not yet form a complete product loop |
 | Frozen briefs and bounded planner loop | Integrated offline | Real tasks, tools, persistence and recovery with synthetic model responses; valid structure remains unreviewed quality |
 | Live model planning, independent review and automatic repairs | Pending | Require effective authorization, actual cost controls and creative acceptance |
 | Agent-to-Agent, long-term personal memory, Personal Agent | Future direction | Not currently delivered product capabilities |
 
-On 2026-10-22, a fresh live task using complete tool-argument schemas read its frozen source successfully, then stopped without a plan when the next request produced no HTTP receipt within 120 seconds. Optional bounded field diagnostics are implemented; formal callers keep their existing default feedback. Eight matched text charges total CNY 0.026228; two operations remain unknown with their risk reservations retained. Production remains disabled. See the [latest validation record](./docs/PLANNER-CONTRACT-VALIDATION.md) and the confirmed [autonomous collaboration goal](./docs/AUTONOMOUS-COLLABORATION-GOAL.md).
+On 2026-10-22, a fresh live task using complete tool-argument schemas read its frozen source successfully, then stopped without a plan when the next request produced no HTTP receipt within 120 seconds. Optional bounded field diagnostics are implemented; formal callers keep their existing default feedback. Eight matched text charges total CNY 0.026228; two operations remain unknown with their risk reservations retained. See the [live trial record](./docs/PLANNER-CONTRACT-VALIDATION.md).
+
+The subsequent [D14 receipt reliability slice](./docs/PLANNER-RECEIPT-RECOVERY-VALIDATION.md) passed 724 full backend tests and an independent rerun of its 68 receipt tests. Its separate HTTP/CLI inspection path is read-only; historical unknowns remain unresolved, and no new live calls or charges occurred. Capture is off by default and production remains disabled. Next comes a real accepted storyboard, followed by independent review and bounded repair, toward the confirmed [autonomous collaboration goal](./docs/AUTONOMOUS-COLLABORATION-GOAL.md).
 
 ## Quick start
 

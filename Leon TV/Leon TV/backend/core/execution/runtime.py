@@ -18,6 +18,7 @@ from core.execution.policy import (
     units,
     wire_api,
 )
+from core.execution.receipts import ObservationEnded, ReceiptCaptureSettings, ReceiptStore
 from core.execution.store import ExecutionStore, totals
 from core.execution.transport import (
     ControlledTransport,
@@ -32,12 +33,22 @@ from core.planner.runtime import SYSTEM
 
 
 class ExecutionRuntime:
-    def __init__(self, root, planner, *, policy=None, enabled=False, api_key=None, transport=None, input_bounder=None):
+    def __init__(self, root, planner, *, policy=None, enabled=False, api_key=None, transport=None, input_bounder=None, receipt_capture=None):
         self.store, self.planner = ExecutionStore(root), planner
         self.policy = policy.frozen() if policy is not None else None
         self.enabled, self.api_key, self.transport = enabled, api_key, transport
         self.input_bounder = input_bounder
+        if receipt_capture is not None and not isinstance(receipt_capture, ReceiptCaptureSettings):
+            raise ValueError("Explicit server receipt capture settings required")
+        self.receipt_capture = receipt_capture
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="controlled-planner")
+
+    def inspect_receipts(self, task_id, operation_id):
+        payload = self.store.read_only()
+        operation = payload["operations"].get(operation_id)
+        if operation is None or operation["task_id"] != task_id:
+            raise CreatorError("NOT_FOUND", "Execution operation not found", 404)
+        return {"inspection": ReceiptStore(self.store.root / "receipts").inspect(operation)}
 
     def close(self):
         self.pool.shutdown(wait=True)
@@ -475,13 +486,19 @@ class ExecutionRuntime:
                     payload["operations"][operation_id] = operation
                     self.bump(task, "operation_reserved", operation_id=operation_id)
                 try:
-                    raw = ControlledTransport(self.transport, self.input_bounder).perform(copy.deepcopy(operation), policy, self.api_key)
+                    if self.receipt_capture is None:
+                        transport = ControlledTransport(self.transport, self.input_bounder)
+                    else:
+                        from core.execution.receipt_transport import CapturedTransport
+                        transport = CapturedTransport(self.transport, self.input_bounder, self.store, self.receipt_capture)
+                    raw = transport.perform(copy.deepcopy(operation), policy, self.api_key)
                 except Exception as error:
-                    diagnostic = ResponseUnconfirmed(unconfirmed_code(error)).diagnostic
+                    diagnostic = None if isinstance(error, ObservationEnded) else ResponseUnconfirmed(unconfirmed_code(error)).diagnostic
                     with self.store.transaction() as payload:
                         task, current = payload["tasks"][task_id], payload["operations"][operation_id]
                         current["status"] = "needs_reconciliation"
-                        current["transport_diagnostic"] = diagnostic
+                        if diagnostic is not None and "transport_diagnostic" not in current:
+                            current["transport_diagnostic"] = diagnostic
                         task["status"] = "stopped" if task["status"] == "stopped" else "needs_reconciliation"
                         task["reason"] = "RESPONSE_UNCONFIRMED"
                         self.bump(task, "response_unconfirmed", task["reason"], operation_id)

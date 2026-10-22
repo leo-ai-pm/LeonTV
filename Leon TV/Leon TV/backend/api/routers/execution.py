@@ -87,6 +87,34 @@ def private_execution(request: Request, runtime=Depends(get_execution_runtime)):
     return runtime
 
 
+async def private_inspection(request: Request, runtime=Depends(get_execution_runtime)):
+    async for chunk in request.stream():
+        if chunk:
+            raise CreatorError("INVALID_INPUT", "Inspection does not accept a request body", 422)
+    # Deliberately never call private_execution: it opens a write transaction.
+    pending, seen, roots = [request.app], set(), []
+    while pending:
+        app = pending.pop()
+        if id(app) in seen:
+            continue
+        seen.add(id(app))
+        for route in getattr(app, "routes", []):
+            if isinstance(route, Mount):
+                roots.extend(getattr(route.app, "all_directories", []))
+                directory = getattr(route.app, "directory", None)
+                if directory:
+                    roots.append(directory)
+                pending.append(route.app)
+    for store in [runtime.store, runtime.planner.store, runtime.planner.brief_store]:
+        store.check_private(roots)
+    return runtime
+
+
+@router.get("/tasks/{task_id}/execution/operations/{operation_id}/receipts/inspect")
+def inspect_receipts(task_id: TaskId, operation_id: TaskId, runtime=Depends(private_inspection)):
+    return runtime.inspect_receipts(task_id, operation_id)
+
+
 @router.get("/execution/policy")
 def policy(runtime=Depends(private_execution)):
     return runtime.policy_view()
