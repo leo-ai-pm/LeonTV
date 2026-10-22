@@ -106,6 +106,8 @@ The creative execution layer remains a fixed stage state machine. The Harness ru
 | Live model planning, independent review and automatic repairs | Pending | Require effective authorization, actual cost controls and creative acceptance |
 | Agent-to-Agent, long-term personal memory, Personal Agent | Future direction | Not currently delivered product capabilities |
 
+On 2026-10-22, a fresh live task using complete tool-argument schemas read its frozen source successfully, then stopped without a plan when the next request produced no HTTP receipt within 120 seconds. Optional bounded field diagnostics are implemented; formal callers keep their existing default feedback. Eight matched text charges total CNY 0.026228; two operations remain unknown with their risk reservations retained. Production remains disabled. See the [latest validation record](./docs/PLANNER-CONTRACT-VALIDATION.md) and the confirmed [autonomous collaboration goal](./docs/AUTONOMOUS-COLLABORATION-GOAL.md).
+
 ## Quick start
 
 Requirements: **Python 3.10+** (3.12 recommended), **Node.js 20.9+**, npm and preferably [uv](https://docs.astral.sh/uv/). Media processing uses system FFmpeg when available, with an `imageio-ffmpeg` binary fallback.
