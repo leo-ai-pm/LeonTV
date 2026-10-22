@@ -57,6 +57,8 @@ Saved brief versions can be frozen into planning tasks from the creator workspac
 
 Execution controls separate server quotes, scoped consent and starting work. Each request reserves funds with its durable intent; ambiguous receipts keep their holds, and new grants cannot reset past use. Live calls remain disabled by default; the actual control path is tested using synthetic policy and transport. [Execution API](./docs/PLANNER-EXECUTION-API.md) · [Acceptance scope](./docs/PLANNER-EXECUTION-VALIDATION.md).
 
+The server explicitly selects Chat Completions or Responses. Responses uses non-streaming text requests without remote conversation chaining or hosted tools. Cached and reasoning tokens are checked as subsets of total usage; unknown billing dimensions keep the reservation. Protocol support does not enable live calls or rewrite historical authorization hashes. [Responses contract](./docs/PLANNER-RESPONSES-API.md) · [Validation and live-trial boundaries](./docs/PLANNER-RESPONSES-VALIDATION.md).
+
 ## Agent Harness architecture
 
 A Harness manages the environment in which an Agent works: tool access, context, state, budget, checkpoints, quality feedback and recovery. Leon TV aims to support planning, generation, inspection and local repairs within a bounded task, followed by final human acceptance.
@@ -98,6 +100,7 @@ The creative execution layer remains a fixed stage state machine. The Harness ru
 | Real image and video output | Demonstrated in this trial | Actual outputs above; not certification of every model or parameter combination |
 | Product runtime, version gates and recovery | Integrated in test mode | Studio run-validation panel, formal API and durable storage; no real model or paid calls |
 | Planning authorization and cost gates | Validated with synthetic transport | Server quotes, explicit grants, atomic reservations, cumulative limits and receipt reconciliation; local pricing is not a provider bill |
+| Chat / Responses text protocols | Explicit server adapters | Fixed protocol and model without fallback; stateless text requests and conservative reasoning/cache usage handling; live channel validation pending |
 | Production quality review and repair | Integration pending | Existing adapters and trials do not yet form a complete product loop |
 | Frozen briefs and bounded planner loop | Integrated offline | Real tasks, tools, persistence and recovery with synthetic model responses; valid structure remains unreviewed quality |
 | Live model planning, independent review and automatic repairs | Pending | Require effective authorization, actual cost controls and creative acceptance |

@@ -14,6 +14,19 @@ from core.planner.protocol import Strict
 SCOPE = "frozen_brief_and_tool_history_to_named_provider"
 
 
+def wire_api(policy):
+    value = policy.get("wire_api", "chat_completions")
+    if value not in {"chat_completions", "responses"}:
+        raise ValueError("Explicit supported text protocol required")
+    return value
+
+
+def protocol_endpoint_matches(policy):
+    parsed = urlparse(policy["endpoint"])
+    suffix = "/responses" if wire_api(policy) == "responses" else "/chat/completions"
+    return parsed.scheme == "https" and bool(parsed.hostname) and not any([parsed.username, parsed.password, parsed.query, parsed.fragment]) and parsed.path.endswith(suffix)
+
+
 @dataclass(frozen=True)
 class TrustedInputBounder:
     """Reviewed server-injected bound; no bytes-equal-tokens fallback exists."""
@@ -55,6 +68,7 @@ class ExecutionPolicy(Strict):
     provider: Literal["openai_compatible"] = "openai_compatible"
     model: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$")
     endpoint: str
+    wire_api: Literal["chat_completions", "responses"] = "chat_completions"
     currency: Literal["CNY"] = "CNY"
     input_cny_per_million: str
     output_cny_per_million: str
@@ -78,8 +92,7 @@ class ExecutionPolicy(Strict):
 
     @model_validator(mode="after")
     def checked(self):
-        parsed = urlparse(self.endpoint)
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or not parsed.path.endswith("/chat/completions"):
+        if not protocol_endpoint_matches(self.model_dump()):
             raise ValueError("Explicit compatible text endpoint required")
         for amount in [self.input_cny_per_million, self.output_cny_per_million, self.task_limit_cny, self.account_limit_cny]:
             if not re.fullmatch(r"(?:0|[1-9][0-9]{0,6})(?:\.[0-9]{1,6})?", amount):
@@ -92,6 +105,8 @@ class ExecutionPolicy(Strict):
 
     def frozen(self):
         result = self.model_dump()
+        if "wire_api" not in self.model_fields_set:
+            result.pop("wire_api")  # Legacy hashes must not gain a default field.
         result["policy_hash"] = digest(result)
         return result
 
@@ -100,6 +115,7 @@ def safe_policy(policy):
     result = {key: value for key, value in policy.items() if key not in {"account_scope_id", "operator_approved", "billing_bound_verified", "validation_only"}}
     for key in ["task_limit_cny", "account_limit_cny"]:
         result[key] = money(units(result[key]))
+    result["wire_api"] = wire_api(policy)  # Projection only, never backfill storage.
     return result
 
 

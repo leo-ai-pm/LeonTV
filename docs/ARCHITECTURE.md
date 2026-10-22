@@ -73,7 +73,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 
 正常任务没有许可时停在 `awaiting_authorization`，创建、读取或恢复不调用模型。高级 `offline_test` 使用合成模型响应，实际运行相同的任务、工具、反馈、校验和持久恢复代码。确认回执恢复时复用；未确认调用进入未知状态，停止也不清除未决信息，不会自动重调。私有状态位于 `harness_data/brief_planner/`，列表与事件只投影安全元数据，完整冻结正文通过明确的 source 读取。
 
-单次真实文本传输适配器已有代码和合成传输测试，但本版无公开授权或 live 执行入口；D09已增加持久授权/预占与保守回执处理，真实供应商协议和计费边界仍待核实。不能由此宣称已交付完整自主 Harness。[D08合同](./BRIEF-PLANNER-API.md) · [验证范围](./BRIEF-PLANNER-VALIDATION.md)。
+D08自身的正常任务不签发真实执行授权；D09在独立执行记录中增加持久授权/预占与保守回执处理，生产仍默认关闭，实际供应商协议和计费边界须另验。不能由此宣称已交付完整自主 Harness。[D08合同](./BRIEF-PLANNER-API.md) · [验证范围](./BRIEF-PLANNER-VALIDATION.md)。
 
 ## 受控文本执行与账本
 
@@ -84,6 +84,8 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 原始回执先持久化，再严格检查ID/model/finish reason/usage；完整回执按冻结费率计算六位小数的本地金额，替换原预占。缺失、歧义、截断或超界保留hold；reconcile只处理已有回执，无客户端写账和虚构供应商账单接口。账户身份在journal内固定，停启、换策略或新grant不重置历史暴露。
 
 私有`harness_data/planner_execution/`使用变更记录、摘要链、独立head和原子替换，减少全局状态重复保存；拒绝损坏与符号链接，静态树双向隔离。生产bootstrap为disabled，没有策略/Key/可信bounder，不从旧配置或预算签发许可。真实服务商接入与输入计费边界须另行核实。[D09合同](./PLANNER-EXECUTION-API.md) · [验证](./PLANNER-EXECUTION-VALIDATION.md)。
+
+D10使`wire_api`成为显式服务端策略：保留旧Chat请求和历史摘要，新增Responses固定文本请求，协议同时绑定报价、操作许可和实际wire。无流式、远端会话续链、内置工具或自动fallback。Responses必须完成、无错误、模型与ID匹配，并严格接受单一文本动作；reasoning内容仅私有保留，cached/reasoning计数是总用量子集，不额外相加或扣除。未知用量、工具或计费维度保留预占，不能把返回文本当成已结账。协议适配与供应商实际支持分开验收。[D10合同](./PLANNER-RESPONSES-API.md) · [验证边界](./PLANNER-RESPONSES-VALIDATION.md)。
 
 ## 产品内 Harness 运行基础
 

@@ -1,10 +1,13 @@
 import type { PlannerPlan, PlannerSource } from './briefPlannerTypes';
 
-/** D09 v1. The execution domain never changes the legacy D08 task. */
+/** D09 v1 + additive D10 v1. Source, authorization and money remain server-owned. */
 export const EXECUTION_SCOPE = 'frozen_brief_and_tool_history_to_named_provider' as const;
+export type ExecutionWireApi = 'chat_completions' | 'responses';
+export type ExecutionResponseStatus = 'completed' | 'incomplete' | 'failed' | 'in_progress' | 'queued' | 'cancelled';
 export type ExecutionAction = 'resume' | 'stop' | 'reconcile';
 export type ExecutionStatus = 'not_authorized' | 'ready' | 'queued' | 'running' | 'stopped' | 'blocked' | 'needs_reconciliation' | 'plan_ready';
 export interface ExecutionPolicy {
+  wire_api: ExecutionWireApi;
   id: string; version: string; policy_hash: string; provider: 'openai_compatible'; model: string; endpoint: string; currency: 'CNY';
   input_cny_per_million: string; output_cny_per_million: string; max_input_tokens: number; max_output_tokens: number;
   max_input_bytes: number; max_output_bytes: number; request_deadline_seconds: number; max_calls: number;
@@ -27,6 +30,8 @@ export interface ExecutionLedger {
   account_max_calls: number | null; provider_bill_confirmed: false;
 }
 export interface ExecutionOperation {
+  wire_api: ExecutionWireApi; response_status: ExecutionResponseStatus | null;
+  cached_input_tokens: number | null; reasoning_output_tokens: number | null;
   id: string; step: number; status: 'submitting' | 'received' | 'settled' | 'needs_reconciliation'; grant_id: string; quote_id: string;
   policy_hash: string; context_hash: string; hold_cny: string; locally_accounted_cny: string | null;
   provider_request_id: string | null; provider_response_id: string | null; input_tokens: number | null; output_tokens: number | null;

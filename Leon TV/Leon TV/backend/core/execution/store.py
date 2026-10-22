@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from core.creator.store import ID_RE, KEY_RE, CreatorBriefStore, CreatorError, digest, utc_now
+from core.execution.policy import wire_api
 from core.harness.store import lock_file, unlock_file
 from core.planner.protocol import parse_json
 from core.planner.store import check_source
@@ -57,6 +58,9 @@ def validate_payload(payload):
         require(operation["permit_hash"] == digest(operation["permit"]))
         task, grant, quote = payload["tasks"][operation["task_id"]], payload["grants"][operation["grant_id"]], payload["quotes"][operation["quote_id"]]
         require(operation["snapshot_hash"] == task["snapshot_hash"] == grant["snapshot_hash"] == quote["snapshot_hash"])
+        tagged = "wire_api" in quote["policy"]
+        require(("wire_api" in operation) == tagged and ("wire_api" in operation["permit"]) == tagged)
+        require(wire_api(operation) == wire_api(operation["permit"]) == wire_api(quote["policy"]))
     for quote_id, quote in payload["quotes"].items():
         require(quote["id"] == quote_id and quote["task_id"] in payload["tasks"])
         require(quote["disclosure_hash"] == digest({key: value for key, value in quote.items() if key != "disclosure_hash"}))

@@ -1,5 +1,5 @@
 import { readPlannerPlan, readPlannerSource } from './briefPlannerApi';
-import { EXECUTION_SCOPE, type ExecutionActionRequest, type ExecutionDetail, type ExecutionEvent, type ExecutionGrant, type ExecutionGrantRequest, type ExecutionLedger, type ExecutionOperation, type ExecutionPolicy, type ExecutionPolicyResult, type ExecutionQuote, type ExecutionQuoteRequest, type ExecutionRevokeRequest, type ExecutionWrite } from './plannerExecutionTypes';
+import { EXECUTION_SCOPE, type ExecutionActionRequest, type ExecutionDetail, type ExecutionEvent, type ExecutionGrant, type ExecutionGrantRequest, type ExecutionLedger, type ExecutionOperation, type ExecutionPolicy, type ExecutionPolicyResult, type ExecutionQuote, type ExecutionQuoteRequest, type ExecutionRevokeRequest, type ExecutionResponseStatus, type ExecutionWireApi, type ExecutionWrite } from './plannerExecutionTypes';
 
 export class PlannerExecutionError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -15,8 +15,14 @@ const nullableMoney = (v: unknown): v is string | null => v === null || money(v)
 const nullableCount = (v: unknown): v is number | null => v === null || count(v);
 function invalid(): never { throw new PlannerExecutionError(0, 'INVALID_RESPONSE', '规划记录响应格式不符合要求，原请求与未决费用保持，请重新查询。'); }
 function object(v: unknown): Record<string, unknown> { if (!v || typeof v !== 'object' || Array.isArray(v)) return invalid(); return v as Record<string, unknown>; }
+function wireApi(value: unknown): ExecutionWireApi {
+  // D10's display-only legacy default must not backfill or rehash any saved object.
+  if (value === undefined) return 'chat_completions';
+  if (value !== 'chat_completions' && value !== 'responses') return invalid();
+  return value;
+}
 export function readExecutionPolicy(value: unknown): ExecutionPolicy {
-  const p = object(value);
+  const p = object(value), wire = wireApi(p.wire_api);
   if (!text(p.id) || !text(p.version) || !hash(p.policy_hash) || p.provider !== 'openai_compatible' || !text(p.model) || !p.model || !text(p.endpoint) || p.currency !== 'CNY' ||
     !text(p.input_cny_per_million) || !/^\d+(?:\.\d+)?$/.test(p.input_cny_per_million) || !text(p.output_cny_per_million) || !/^\d+(?:\.\d+)?$/.test(p.output_cny_per_million) ||
     !positive(p.max_input_tokens) || !positive(p.max_output_tokens) || !positive(p.max_input_bytes) || !positive(p.max_output_bytes) ||
@@ -25,8 +31,9 @@ export function readExecutionPolicy(value: unknown): ExecutionPolicy {
     !text(p.pricing_basis) || !text(p.input_bound_basis)) return invalid();
   let endpoint: URL;
   try { endpoint = new URL(p.endpoint); } catch { return invalid(); }
-  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) return invalid();
-  return { id: p.id, version: p.version, policy_hash: p.policy_hash, provider: 'openai_compatible', model: p.model, endpoint: p.endpoint, currency: 'CNY',
+  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
+    !endpoint.pathname.endsWith(wire === 'responses' ? '/responses' : '/chat/completions')) return invalid();
+  return { wire_api: wire, id: p.id, version: p.version, policy_hash: p.policy_hash, provider: 'openai_compatible', model: p.model, endpoint: p.endpoint, currency: 'CNY',
     input_cny_per_million: p.input_cny_per_million, output_cny_per_million: p.output_cny_per_million, max_input_tokens: p.max_input_tokens,
     max_output_tokens: p.max_output_tokens, max_input_bytes: p.max_input_bytes, max_output_bytes: p.max_output_bytes, request_deadline_seconds: p.request_deadline_seconds,
     max_calls: p.max_calls, task_limit_cny: p.task_limit_cny, account_limit_cny: p.account_limit_cny, account_max_calls: p.account_max_calls,
@@ -57,11 +64,18 @@ function readLedger(value: unknown): ExecutionLedger {
     account_max_calls: l.account_max_calls, provider_bill_confirmed: false };
 }
 function readOperation(value: unknown): ExecutionOperation {
-  const o = object(value);
+  const o = object(value), wire = wireApi(o.wire_api), responseStatus = o.response_status === undefined ? null : o.response_status;
+  const cached = o.cached_input_tokens === undefined ? null : o.cached_input_tokens;
+  const reasoning = o.reasoning_output_tokens === undefined ? null : o.reasoning_output_tokens;
   if (!id(o.id) || !positive(o.step) || !['submitting','received','settled','needs_reconciliation'].includes(String(o.status)) || !id(o.grant_id) || !id(o.quote_id) ||
     !hash(o.policy_hash) || !hash(o.context_hash) || !money(o.hold_cny) || !nullableMoney(o.locally_accounted_cny) || !nullableText(o.provider_request_id) || !nullableText(o.provider_response_id) ||
-    !nullableCount(o.input_tokens) || !nullableCount(o.output_tokens) || !nullableText(o.finish_reason) || !['none','received','confirmed_local','unconfirmed'].includes(String(o.receipt_status)) || !text(o.created_at) || !nullableText(o.received_at)) return invalid();
-  return { id: o.id, step: o.step, status: o.status as ExecutionOperation['status'], grant_id: o.grant_id, quote_id: o.quote_id, policy_hash: o.policy_hash, context_hash: o.context_hash,
+    !nullableCount(o.input_tokens) || !nullableCount(o.output_tokens) || !nullableText(o.finish_reason) || !['none','received','confirmed_local','unconfirmed'].includes(String(o.receipt_status)) || !text(o.created_at) || !nullableText(o.received_at) ||
+    !(responseStatus === null || text(responseStatus) && ['completed','incomplete','failed','in_progress','queued','cancelled'].includes(responseStatus)) ||
+    !nullableCount(cached) || !nullableCount(reasoning) ||
+    wire === 'chat_completions' && responseStatus !== null || wire === 'responses' && o.finish_reason !== null ||
+    cached !== null && (o.input_tokens === null || cached > o.input_tokens) || reasoning !== null && (o.output_tokens === null || reasoning > o.output_tokens)) return invalid();
+  return { wire_api: wire, response_status: responseStatus as ExecutionResponseStatus | null, cached_input_tokens: cached, reasoning_output_tokens: reasoning,
+    id: o.id, step: o.step, status: o.status as ExecutionOperation['status'], grant_id: o.grant_id, quote_id: o.quote_id, policy_hash: o.policy_hash, context_hash: o.context_hash,
     hold_cny: o.hold_cny, locally_accounted_cny: o.locally_accounted_cny, provider_request_id: o.provider_request_id, provider_response_id: o.provider_response_id,
     input_tokens: o.input_tokens, output_tokens: o.output_tokens, finish_reason: o.finish_reason, receipt_status: o.receipt_status as ExecutionOperation['receipt_status'], created_at: o.created_at, received_at: o.received_at };
 }

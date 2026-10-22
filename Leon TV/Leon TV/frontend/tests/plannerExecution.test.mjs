@@ -354,3 +354,119 @@ test('POST timeout releases lock but preserves original key, exact references an
   const running = c.action('resume'); await settle(); deadline(); await running;
   assert.equal(c.getSnapshot().busy, false); assert.equal(c.getSnapshot().pending.request.expected_execution_revision, 2); assert.equal(c.getSnapshot().execution.revision, 2); assert.equal(cleared, 1); assert.match(c.getSnapshot().error, /未决预占保留/);
 });
+
+// D10 uses synthetic server-owned projections. No supplier requests or price inference.
+function responsePolicy(patch = {}) { return { ...policy, wire_api: 'responses', policy_hash: SNAP_B, endpoint: 'https://synthetic.invalid/v1/responses', ...patch }; }
+function responseQuote(patch = {}) { return quote({ policy: responsePolicy(), disclosure_hash: '6'.repeat(64), ...patch }); }
+function responseGrant(patch = {}) { return grant({ policy_hash: SNAP_B, disclosure_hash: '6'.repeat(64), ...patch }); }
+function responseOperation(patch = {}) { return operation({ wire_api: 'responses', policy_hash: SNAP_B, response_status: 'completed', finish_reason: null,
+  input_tokens: 100, output_tokens: 40, cached_input_tokens: 30, reasoning_output_tokens: 20, status: 'settled', receipt_status: 'confirmed_local',
+  locally_accounted_cny: '0.000090', provider_request_id: 'synthetic-request-1', provider_response_id: 'synthetic-response-1', received_at: WHEN, ...patch }); }
+
+test('D10 reads missing legacy fields as chat/null without mutating original policies or hashes', () => {
+  const rawPolicy = Object.freeze({ ...policy }), op = Object.freeze(operation({ finish_reason: 'stop' }));
+  const raw = ready({ quotes: [quote({ policy: rawPolicy })], operations: [op] }), before = JSON.stringify(raw);
+  const parsed = api.readExecutionDetail(raw);
+  assert.equal(parsed.quotes[0].policy.wire_api, 'chat_completions'); assert.equal(parsed.quotes[0].policy.policy_hash, HASH);
+  assert.equal(parsed.quotes[0].disclosure_hash, HASH); assert.equal(parsed.operations[0].wire_api, 'chat_completions');
+  for (const name of ['response_status','cached_input_tokens','reasoning_output_tokens']) assert.equal(parsed.operations[0][name], null);
+  assert.equal(parsed.operations[0].finish_reason, 'stop'); assert.equal(JSON.stringify(raw), before); assert.equal('wire_api' in rawPolicy, false); assert.equal('wire_api' in op, false);
+});
+
+test('D10 preserves explicit server protocol, endpoint/model and hashes without rehashing or fallback', () => {
+  for (const p of [{ ...policy, wire_api: 'chat_completions' }, responsePolicy()]) {
+    const parsed = api.readExecutionPolicy(Object.freeze(p));
+    assert.equal(parsed.wire_api, p.wire_api); assert.equal(parsed.endpoint, p.endpoint); assert.equal(parsed.model, p.model); assert.equal(parsed.policy_hash, p.policy_hash);
+  }
+});
+
+test('D10 rejects unknown/null protocols and mismatched endpoints; missing tag never guesses Responses', () => {
+  for (const p of [responsePolicy({ wire_api: null }), responsePolicy({ wire_api: 'automatic' }), responsePolicy({ wire_api: 'chat_completions' }),
+    { ...policy, wire_api: 'responses' }, { ...policy, endpoint: responsePolicy().endpoint }, responsePolicy({ endpoint: 'https://synthetic.invalid/v1/responses?key=synthetic' })]) assert.throws(() => api.readExecutionPolicy(p));
+  assert.equal(api.readExecutionPolicy({ ...policy, model: 'synthetic-responses-name' }).wire_api, 'chat_completions');
+});
+
+test('D10 mixed history keeps each operation protocol independent of the current Responses quote', () => {
+  const raw = ready({ quotes: [quote(), responseQuote({ id: Q_NEW })], operations: [operation({ finish_reason: 'stop' }), responseOperation({ id: Q_NEW, quote_id: Q_NEW })] });
+  const parsed = api.readExecutionDetail(raw);
+  assert.deepEqual(parsed.quotes.map(q => q.policy.wire_api), ['chat_completions','responses']);
+  assert.equal(parsed.operations[0].wire_api, 'chat_completions'); assert.equal(parsed.operations[0].response_status, null); assert.equal(parsed.operations[0].finish_reason, 'stop');
+  assert.equal(parsed.operations[1].wire_api, 'responses'); assert.equal(parsed.operations[1].response_status, 'completed'); assert.equal(parsed.operations[1].finish_reason, null);
+});
+
+test('D10 exposes validated usage subsets without adding/subtracting totals or retaining private reasoning', () => {
+  const raw = ready({ quotes: [responseQuote()], grants: [responseGrant()], operations: [responseOperation({ raw: PRIVATE, content: PRIVATE, reasoning_text: PRIVATE, encrypted_content: PRIVATE, annotations: [PRIVATE] })] });
+  const parsed = api.readExecutionDetail(raw), op = parsed.operations[0];
+  assert.equal(op.input_tokens, 100); assert.equal(op.output_tokens, 40); assert.equal(op.cached_input_tokens, 30); assert.equal(op.reasoning_output_tokens, 20);
+  assert.equal(op.locally_accounted_cny, '0.000090'); assert.equal(op.hold_cny, '0.001500'); assert.equal(parsed.ledger.provider_bill_confirmed, false);
+  assert.equal(JSON.stringify(parsed).includes(PRIVATE), false);
+});
+
+test('D10 optional usage details remain unknown; only an explicit validated zero is displayed as zero', () => {
+  for (const patch of [{ cached_input_tokens: undefined, reasoning_output_tokens: undefined }, { cached_input_tokens: null, reasoning_output_tokens: null }]) {
+    const parsed = api.readExecutionDetail(ready({ operations: [responseOperation(patch)] })).operations[0];
+    assert.equal(parsed.cached_input_tokens, null); assert.equal(parsed.reasoning_output_tokens, null);
+  }
+  const zero = api.readExecutionDetail(ready({ operations: [responseOperation({ input_tokens: 0, output_tokens: 0, cached_input_tokens: 0, reasoning_output_tokens: 0 })] })).operations[0];
+  assert.equal(zero.cached_input_tokens, 0); assert.equal(zero.reasoning_output_tokens, 0);
+});
+
+test('D10 rejects invalid subset numbers, parentless details and unknown response statuses', () => {
+  for (const patch of [{ cached_input_tokens: true }, { cached_input_tokens: -1 }, { cached_input_tokens: 0.5 }, { cached_input_tokens: 101 },
+    { reasoning_output_tokens: 41 }, { reasoning_output_tokens: NaN }, { input_tokens: null }, { output_tokens: null }, { response_status: 'guessed_success' }, { wire_api: null }]) {
+    assert.throws(() => api.readExecutionDetail(ready({ operations: [responseOperation(patch)] })));
+  }
+});
+
+test('D10 never manufactures a chat stop for Responses or a Responses status for legacy chat', () => {
+  assert.throws(() => api.readExecutionDetail(ready({ operations: [responseOperation({ finish_reason: 'stop' })] })));
+  assert.throws(() => api.readExecutionDetail(ready({ operations: [operation({ response_status: 'completed' })] })));
+  const op = api.readExecutionDetail(ready({ operations: [responseOperation({ response_status: undefined })] })).operations[0];
+  assert.equal(op.response_status, null); assert.equal(op.finish_reason, null);
+});
+
+test('D10 response status is observation only and never clears unknown hold or creates a success result', () => {
+  for (const status of ['completed','incomplete','failed','in_progress','queued','cancelled',null]) {
+    const ledger = { ...ready().ledger, held_cny: '0.001500', call_count: 1 };
+    const parsed = api.readExecutionDetail(ready({ status: 'needs_reconciliation', blocked_reason: 'RECEIPT_INCOMPLETE', allowed_actions: ['stop'], ledger,
+      operations: [responseOperation({ status: 'needs_reconciliation', receipt_status: 'unconfirmed', locally_accounted_cny: null, response_status: status })] }));
+    assert.equal(parsed.status, 'needs_reconciliation'); assert.equal(parsed.operations[0].response_status, status); assert.equal(parsed.operations[0].locally_accounted_cny, null);
+    assert.deepEqual(parsed.ledger, ledger); assert.equal(parsed.plan, null); assert.equal(parsed.quality_status, 'not_reviewed');
+  }
+});
+
+test('D10 Responses quote/grant/start preserve original disclosure references and never submit client protocol/usage', async t => {
+  const s = store(), c = client(s), rq = responseQuote(), rg = responseGrant(); let current = execution(); const posts = [];
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    if (opts.method === 'POST') {
+      const input = JSON.parse(opts.body); posts.push({ url, input }); assert.deepEqual(JSON.parse(s.getItem(c.storageKey)).request, input);
+      for (const forbidden of ['wire_api','model','endpoint','input_tokens','output_tokens','usage','price','response_status','cached_input_tokens','reasoning_output_tokens']) assert.equal(forbidden in input, false);
+      assert.equal(s.getItem(c.storageKey).includes('wire_api'), false);
+      if (url.endsWith('/quotes')) { current = execution({ revision: 1, quotes: [rq] }); return result(current, { quote: rq }); }
+      if (url.endsWith('/grants')) { assert.equal(input.accepted_disclosure_hash, rq.disclosure_hash); assert.equal(input.quote_id, rq.id); assert.equal(input.expected_execution_revision, 1); current = ready({ quotes: [rq], grants: [rg] }); return result(current, { grant: rg }); }
+      assert.equal(input.action, 'resume'); assert.equal(input.expected_execution_revision, 2);
+      current = ready({ revision: 3, status: 'queued', allowed_actions: ['stop'], quotes: [rq], grants: [rg] }); return result(current);
+    }
+    return reads(url, current, policyView({ policy: responsePolicy() }));
+  });
+  await c.initialize(binding()); await c.requestQuote(); assert.equal(posts.length, 1); assert.equal(c.getSnapshot().reviewed, null);
+  c.reviewQuote(true); await c.grant(); assert.equal(posts.length, 2); assert.equal(c.getSnapshot().execution.status, 'ready');
+  assert.equal(c.getSnapshot().execution.quotes[0].policy.policy_hash, SNAP_B); await c.action('resume'); assert.equal(posts.length, 3); assert.equal(c.getSnapshot().pending, null);
+});
+
+test('D10 malformed new receipt keeps original action key and hold until exact-key confirmation', async t => {
+  const c = client(), rq = responseQuote(), rg = responseGrant(), ledger = { ...ready().ledger, held_cny: '0.001500', call_count: 1 };
+  let current = ready({ quotes: [rq], grants: [rg], ledger }), original, valid = false;
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    if (opts.method === 'POST') {
+      const input = JSON.parse(opts.body); if (original) assert.deepEqual(input, original); else original = input;
+      current = ready({ revision: 3, status: 'needs_reconciliation', blocked_reason: 'RECEIPT_INCOMPLETE', allowed_actions: ['stop'], quotes: [rq], grants: [rg], ledger,
+        operations: [responseOperation({ status: 'needs_reconciliation', receipt_status: 'unconfirmed', locally_accounted_cny: null })] });
+      return result(valid ? current : { ...current, operations: [responseOperation({ finish_reason: 'stop' })] }, {}, valid, 3);
+    }
+    return reads(url, current, policyView({ policy: responsePolicy() }));
+  });
+  await c.initialize(binding()); await c.action('resume'); assert.ok(c.getSnapshot().pending); assert.equal(c.getSnapshot().execution.ledger.held_cny, '0.001500');
+  valid = true; await c.recover(false); assert.ok(c.getSnapshot().pending); assert.equal(c.getSnapshot().execution.status, 'needs_reconciliation');
+  await c.recover(true); assert.equal(c.getSnapshot().pending, null); assert.equal(c.getSnapshot().execution.ledger.held_cny, '0.001500');
+});

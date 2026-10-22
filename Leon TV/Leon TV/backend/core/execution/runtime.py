@@ -6,7 +6,17 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 from core.creator.store import CreatorError, digest, utc_now
-from core.execution.policy import SCOPE, TrustedInputBounder, cost, money, now, safe_policy, units
+from core.execution.policy import (
+    SCOPE,
+    TrustedInputBounder,
+    cost,
+    money,
+    now,
+    protocol_endpoint_matches,
+    safe_policy,
+    units,
+    wire_api,
+)
 from core.execution.store import ExecutionStore, totals
 from core.execution.transport import ControlledTransport, normalized, wire_for
 from core.harness.store import unlock_file
@@ -29,6 +39,8 @@ class ExecutionRuntime:
         if not self.enabled:
             return "LIVE_DISABLED"
         if self.policy is None or not self.api_key or datetime.fromisoformat(self.policy["valid_until"]) <= now():
+            return "POLICY_UNAVAILABLE"
+        if not protocol_endpoint_matches(self.policy):
             return "POLICY_UNAVAILABLE"
         if not isinstance(self.input_bounder, TrustedInputBounder) or self.input_bounder.policy_hash != self.policy["policy_hash"] or not self.input_bounder.verification_ref or not callable(self.input_bounder.upper_bound):
             return "POLICY_UNAVAILABLE"
@@ -159,9 +171,10 @@ class ExecutionRuntime:
                 continue
             receipt = op["normalized"] or {}
             operations.append({"id": op["id"], "step": op["step"], "status": op["status"], "grant_id": op["grant_id"], "quote_id": op["quote_id"],
+                "wire_api": wire_api(payload["quotes"][op["quote_id"]]["policy"]),
                 "policy_hash": op["policy_hash"], "context_hash": op["context_hash"], "hold_cny": money(op["hold_units"]),
                 "locally_accounted_cny": money(op["local_units"]) if op["local_units"] is not None else None,
-                **{key: receipt.get(key) for key in ["provider_request_id", "provider_response_id", "input_tokens", "output_tokens", "finish_reason"]},
+                **{key: receipt.get(key) for key in ["provider_request_id", "provider_response_id", "input_tokens", "output_tokens", "finish_reason", "response_status", "cached_input_tokens", "reasoning_output_tokens"]},
                 "receipt_status": "confirmed_local" if op["status"] == "settled" else "received" if op["status"] == "received" else "unconfirmed" if op["status"] == "needs_reconciliation" else "none",
                 "created_at": op["created_at"], "received_at": op["raw"]["received_at"] if op["raw"] else None})
         return {"task_id": task_id, "revision": task["revision"], "environment": self.environment(), "status": status, "blocked_reason": reason,
@@ -443,10 +456,12 @@ class ExecutionRuntime:
                         "scope": SCOPE, "account_id": policy["account_scope_id"], "input_token_upper": input_upper, "bounder_ref": self.input_bounder.verification_ref,
                         "hold_units": units(quote["per_call_hold_cny"]), "deadline_at": deadline.isoformat(), "issued_at": utc_now(),
                         "grant_expires_at": grant["expires_at"], "quote_expires_at": quote["expires_at"], **{key: policy[key] for key in ["currency", "max_input_tokens", "max_output_tokens", "max_input_bytes", "max_output_bytes"]}, "nonce": uuid.uuid4().hex}
+                    protocol_tag = {"wire_api": policy["wire_api"]} if "wire_api" in policy else {}
+                    permit.update(protocol_tag)
                     operation = {"id": operation_id, "task_id": task_id, "step": totals(payload, task_id=task_id)["calls"] + 1,
                         "grant_id": grant["id"], "quote_id": quote["id"], "account_id": policy["account_scope_id"], "snapshot_hash": task["snapshot_hash"], "policy_hash": policy["policy_hash"],
                         "context": context, "context_hash": digest(context), "wire": wire, "wire_hash": digest(wire), "permit": permit, "permit_hash": digest(permit),
-                        "status": "submitting", "hold_units": permit["hold_units"], "local_units": None, "raw": None, "normalized": None, "tool_result": None, "created_at": utc_now()}
+                        "status": "submitting", "hold_units": permit["hold_units"], "local_units": None, "raw": None, "normalized": None, "tool_result": None, "created_at": utc_now(), **protocol_tag}
                     payload["operations"][operation_id] = operation
                     self.bump(task, "operation_reserved", operation_id=operation_id)
                 try:

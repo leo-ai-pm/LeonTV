@@ -7,7 +7,15 @@ import threading
 from datetime import datetime
 
 from core.creator.store import digest, utc_now
-from core.execution.policy import SCOPE, TrustedInputBounder, cost, now
+from core.execution.policy import (
+    SCOPE,
+    TrustedInputBounder,
+    cost,
+    now,
+    protocol_endpoint_matches,
+    wire_api,
+)
+from core.execution.responses import normalized_response, request_wire
 from core.planner.protocol import parse_json
 
 
@@ -16,6 +24,8 @@ class ResponseUnconfirmed(Exception):
 
 
 def wire_for(messages, policy):
+    if wire_api(policy) == "responses":
+        return request_wire(messages, policy)
     payload = {"model": policy["model"], "max_tokens": policy["max_output_tokens"], "messages": [
         {"role": "user" if message["role"] == "tool" else message["role"], "content": json.dumps(message["content"], ensure_ascii=False)}
         for message in messages]}
@@ -31,6 +41,9 @@ class ControlledTransport:
         permit = operation["permit"]
         pairs = {"operation_id": "id", "task_id": "task_id", "snapshot_hash": "snapshot_hash", "context_hash": "context_hash", "wire_hash": "wire_hash", "grant_id": "grant_id", "quote_id": "quote_id", "account_id": "account_id", "policy_hash": "policy_hash", "hold_units": "hold_units"}
         valid = operation["permit_hash"] == digest(permit) and all(permit[key] == operation[field] for key, field in pairs.items())
+        tagged = "wire_api" in policy
+        valid = valid and ("wire_api" in operation) == tagged and ("wire_api" in permit) == tagged
+        valid = valid and wire_api(policy) == wire_api(operation) == wire_api(permit) and protocol_endpoint_matches(policy)
         valid = valid and operation["context_hash"] == digest(operation["context"]) and operation["wire_hash"] == digest(operation["wire"]) and operation["wire"] == wire_for(operation["context"], policy)
         valid = valid and policy["policy_hash"] == digest({key: value for key, value in policy.items() if key != "policy_hash"}) and permit["policy_hash"] == policy["policy_hash"] and permit["model"] == policy["model"] and permit["endpoint"] == policy["endpoint"] and permit["scope"] == SCOPE and permit["account_id"] == policy["account_scope_id"]
         valid = valid and permit["hold_units"] == cost(policy["max_input_tokens"], policy["max_output_tokens"], policy) and len(operation["wire"].encode("utf-8")) <= policy["max_input_bytes"]
@@ -84,6 +97,8 @@ class ControlledTransport:
 
 
 def normalized(raw, policy, hold_units, input_upper=None):
+    if wire_api(policy) == "responses":
+        return normalized_response(raw, policy, hold_units, input_upper)
     empty = {"provider_request_id": None, "provider_response_id": None, "input_tokens": None, "output_tokens": None,
              "finish_reason": None, "content": None, "content_hash": None, "local_units": None}
     result = dict(empty)
