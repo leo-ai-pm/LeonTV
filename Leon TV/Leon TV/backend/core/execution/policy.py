@@ -21,6 +21,17 @@ def wire_api(policy):
     return value
 
 
+def chat_output_parameter(policy):
+    if wire_api(policy) == "responses":
+        if "chat_output_parameter" in policy:
+            raise ValueError("Responses cannot select a Chat output parameter")
+        return None
+    value = policy.get("chat_output_parameter", "max_tokens")
+    if value not in {"max_tokens", "max_completion_tokens"}:
+        raise ValueError("Explicit supported Chat output parameter required")
+    return value
+
+
 def protocol_endpoint_matches(policy):
     parsed = urlparse(policy["endpoint"])
     suffix = "/responses" if wire_api(policy) == "responses" else "/chat/completions"
@@ -69,6 +80,7 @@ class ExecutionPolicy(Strict):
     model: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$")
     endpoint: str
     wire_api: Literal["chat_completions", "responses"] = "chat_completions"
+    chat_output_parameter: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
     currency: Literal["CNY"] = "CNY"
     input_cny_per_million: str
     output_cny_per_million: str
@@ -92,6 +104,8 @@ class ExecutionPolicy(Strict):
 
     @model_validator(mode="after")
     def checked(self):
+        if self.wire_api == "responses" and "chat_output_parameter" in self.model_fields_set:
+            raise ValueError("Responses cannot select a Chat output parameter")
         if not protocol_endpoint_matches(self.model_dump()):
             raise ValueError("Explicit compatible text endpoint required")
         for amount in [self.input_cny_per_million, self.output_cny_per_million, self.task_limit_cny, self.account_limit_cny]:
@@ -102,6 +116,12 @@ class ExecutionPolicy(Strict):
         if datetime.fromisoformat(self.valid_until).tzinfo is None or cost(self.max_input_tokens, self.max_output_tokens, self.model_dump()) <= 0:
             raise ValueError("Explicit expiry and conservative reservation required")
         return self
+
+    def model_dump(self, *args, **kwargs):
+        result = super().model_dump(*args, **kwargs)
+        if "chat_output_parameter" not in self.model_fields_set:
+            result.pop("chat_output_parameter", None)
+        return result
 
     def frozen(self):
         result = self.model_dump()
@@ -116,6 +136,9 @@ def safe_policy(policy):
     for key in ["task_limit_cny", "account_limit_cny"]:
         result[key] = money(units(result[key]))
     result["wire_api"] = wire_api(policy)  # Projection only, never backfill storage.
+    selected = chat_output_parameter(policy)
+    if selected is not None:
+        result["chat_output_parameter"] = selected
     return result
 
 

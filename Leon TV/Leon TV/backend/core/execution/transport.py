@@ -10,6 +10,7 @@ from core.creator.store import digest, utc_now
 from core.execution.policy import (
     SCOPE,
     TrustedInputBounder,
+    chat_output_parameter,
     cost,
     now,
     protocol_endpoint_matches,
@@ -26,7 +27,7 @@ class ResponseUnconfirmed(Exception):
 def wire_for(messages, policy):
     if wire_api(policy) == "responses":
         return request_wire(messages, policy)
-    payload = {"model": policy["model"], "max_tokens": policy["max_output_tokens"], "messages": [
+    payload = {"model": policy["model"], chat_output_parameter(policy): policy["max_output_tokens"], "messages": [
         {"role": "user" if message["role"] == "tool" else message["role"], "content": json.dumps(message["content"], ensure_ascii=False)}
         for message in messages]}
     return json.dumps(payload, ensure_ascii=False)
@@ -44,6 +45,9 @@ class ControlledTransport:
         tagged = "wire_api" in policy
         valid = valid and ("wire_api" in operation) == tagged and ("wire_api" in permit) == tagged
         valid = valid and wire_api(policy) == wire_api(operation) == wire_api(permit) and protocol_endpoint_matches(policy)
+        parameter_tagged = "chat_output_parameter" in policy
+        valid = valid and ("chat_output_parameter" in operation) == parameter_tagged and ("chat_output_parameter" in permit) == parameter_tagged
+        valid = valid and chat_output_parameter(policy) == chat_output_parameter(operation) == chat_output_parameter(permit)
         valid = valid and operation["context_hash"] == digest(operation["context"]) and operation["wire_hash"] == digest(operation["wire"]) and operation["wire"] == wire_for(operation["context"], policy)
         valid = valid and policy["policy_hash"] == digest({key: value for key, value in policy.items() if key != "policy_hash"}) and permit["policy_hash"] == policy["policy_hash"] and permit["model"] == policy["model"] and permit["endpoint"] == policy["endpoint"] and permit["scope"] == SCOPE and permit["account_id"] == policy["account_scope_id"]
         valid = valid and permit["hold_units"] == cost(policy["max_input_tokens"], policy["max_output_tokens"], policy) and len(operation["wire"].encode("utf-8")) <= policy["max_input_bytes"]

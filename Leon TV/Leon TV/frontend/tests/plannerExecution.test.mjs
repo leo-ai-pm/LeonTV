@@ -470,3 +470,89 @@ test('D10 malformed new receipt keeps original action key and hold until exact-k
   valid = true; await c.recover(false); assert.ok(c.getSnapshot().pending); assert.equal(c.getSnapshot().execution.status, 'needs_reconciliation');
   await c.recover(true); assert.equal(c.getSnapshot().pending, null); assert.equal(c.getSnapshot().execution.ledger.held_cny, '0.001500');
 });
+
+// D11 tests remain synthetic; parameter names do not certify supplier billing bounds.
+test('D11 missing Chat output parameter is display-only max_tokens and leaves legacy objects/hashes intact', () => {
+  const oldPolicy = Object.freeze({ ...policy }), op = Object.freeze(operation()), raw = ready({ quotes: [quote({ policy: oldPolicy })], operations: [op] });
+  const before = JSON.stringify(raw), parsed = api.readExecutionDetail(raw);
+  assert.equal(parsed.quotes[0].policy.wire_api, 'chat_completions'); assert.equal(parsed.quotes[0].policy.chat_output_parameter, 'max_tokens');
+  assert.equal(parsed.operations[0].chat_output_parameter, 'max_tokens'); assert.equal(parsed.quotes[0].policy.policy_hash, HASH); assert.equal(parsed.quotes[0].disclosure_hash, HASH);
+  assert.equal('chat_output_parameter' in oldPolicy, false); assert.equal('chat_output_parameter' in op, false); assert.equal(JSON.stringify(raw), before);
+});
+
+test('D11 both explicit Chat parameter names preserve server values and original binding references', () => {
+  for (const parameter of ['max_tokens','max_completion_tokens']) {
+    const p = { ...policy, wire_api: 'chat_completions', chat_output_parameter: parameter, policy_hash: SNAP_B };
+    const q = quote({ policy: p, disclosure_hash: '7'.repeat(64) });
+    const parsed = api.readExecutionDetail(ready({ quotes: [q], operations: [operation({ wire_api: 'chat_completions', chat_output_parameter: parameter })] }));
+    assert.equal(parsed.quotes[0].policy.chat_output_parameter, parameter); assert.equal(parsed.operations[0].chat_output_parameter, parameter);
+    assert.equal(parsed.quotes[0].policy.policy_hash, SNAP_B); assert.equal(parsed.quotes[0].disclosure_hash, q.disclosure_hash);
+    assert.equal(parsed.quotes[0].policy.max_output_tokens, p.max_output_tokens); assert.equal(parsed.quotes[0].policy.model, p.model);
+  }
+});
+
+test('D11 rejects malformed explicit Chat parameter values without guessing or fallback', () => {
+  for (const parameter of [null, undefined, false, 1, '', 'automatic', 'max_output_tokens']) {
+    assert.throws(() => api.readExecutionPolicy({ ...policy, chat_output_parameter: parameter }));
+    assert.throws(() => api.readExecutionDetail(ready({ operations: [operation({ chat_output_parameter: parameter })] })));
+  }
+});
+
+test('D11 Responses omits the Chat field and rejects every explicit presence in policy and operation', () => {
+  const parsed = api.readExecutionDetail(ready({ quotes: [responseQuote()], operations: [responseOperation()] }));
+  assert.equal('chat_output_parameter' in parsed.quotes[0].policy, false); assert.equal('chat_output_parameter' in parsed.operations[0], false);
+  for (const parameter of ['max_tokens','max_completion_tokens',null,undefined]) {
+    assert.throws(() => api.readExecutionPolicy(responsePolicy({ chat_output_parameter: parameter })));
+    assert.throws(() => api.readExecutionDetail(ready({ operations: [responseOperation({ chat_output_parameter: parameter })] })));
+  }
+});
+
+test('D11 historical operations use their own output parameter rather than the current policy', () => {
+  const p = { ...policy, wire_api: 'chat_completions', chat_output_parameter: 'max_completion_tokens', policy_hash: SNAP_B };
+  const freshGrant = grant({ id: '8'.repeat(32), quote_id: Q_NEW, policy_hash: SNAP_B, disclosure_hash: '7'.repeat(64) });
+  const raw = ready({ quotes: [quote(), quote({ id: Q_NEW, policy: p, disclosure_hash: freshGrant.disclosure_hash })], grants: [grant(), freshGrant], active_grant_id: freshGrant.id,
+    operations: [operation(), operation({ id: Q_B, chat_output_parameter: 'max_tokens' }), operation({ id: Q_NEW, quote_id: Q_NEW, grant_id: freshGrant.id, policy_hash: SNAP_B, chat_output_parameter: 'max_completion_tokens' })] });
+  const parsed = api.readExecutionDetail(raw);
+  assert.equal(parsed.quotes[1].policy.chat_output_parameter, 'max_completion_tokens');
+  assert.deepEqual(parsed.operations.map(o => o.chat_output_parameter), ['max_tokens','max_tokens','max_completion_tokens']);
+});
+
+test('D11 quote/grant/start never send or persist a client output parameter and preserve explicit consent separation', async t => {
+  const s = store(), c = client(s), p = { ...policy, wire_api: 'chat_completions', chat_output_parameter: 'max_completion_tokens', policy_hash: SNAP_B };
+  const q = quote({ policy: p, disclosure_hash: '7'.repeat(64) }), g = grant({ policy_hash: SNAP_B, disclosure_hash: q.disclosure_hash });
+  let current = execution(); const posts = [];
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    if (opts.method === 'POST') {
+      const body = JSON.parse(opts.body); posts.push({ url, body });
+      assert.equal('chat_output_parameter' in body, false); assert.equal(s.getItem(c.storageKey).includes('chat_output_parameter'), false);
+      if (url.endsWith('/quotes')) { current = execution({ revision: 1, quotes: [q] }); return result(current, { quote: q }); }
+      if (url.endsWith('/grants')) { assert.equal(body.quote_id, Q); assert.equal(body.accepted_disclosure_hash, q.disclosure_hash); current = ready({ quotes: [q], grants: [g] }); return result(current, { grant: g }); }
+      assert.equal(body.action, 'resume'); current = ready({ revision: 3, status: 'queued', allowed_actions: ['stop'], quotes: [q], grants: [g] }); return result(current);
+    }
+    return reads(url, current, policyView({ policy: p }));
+  });
+  await c.initialize(binding()); await c.requestQuote(); assert.equal(posts.length, 1); assert.equal(c.getSnapshot().reviewed, null);
+  c.reviewQuote(true); await c.grant(); assert.equal(posts.length, 2); assert.equal(c.getSnapshot().execution.status, 'ready');
+  await c.action('resume'); assert.equal(posts.length, 3); assert.equal(c.getSnapshot().pending, null);
+});
+
+test('D11 malformed operation parameter preserves original action key and unresolved hold for exact-key recovery', async t => {
+  const c = client(), p = { ...policy, wire_api: 'chat_completions', chat_output_parameter: 'max_completion_tokens', policy_hash: SNAP_B };
+  const q = quote({ policy: p, disclosure_hash: '7'.repeat(64) }), g = grant({ policy_hash: SNAP_B, disclosure_hash: q.disclosure_hash });
+  const ledger = { ...ready().ledger, held_cny: '0.001500', call_count: 1 };
+  let current = ready({ quotes: [q], grants: [g], ledger }), original, valid = false;
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    if (opts.method === 'POST') {
+      const body = JSON.parse(opts.body); if (original) assert.deepEqual(body, original); else original = body;
+      current = ready({ revision: 3, status: 'needs_reconciliation', blocked_reason: 'RECEIPT_OUT_OF_BOUNDS', allowed_actions: ['stop'], quotes: [q], grants: [g], ledger,
+        operations: [operation({ status: 'needs_reconciliation', receipt_status: 'unconfirmed', policy_hash: SNAP_B, chat_output_parameter: 'max_completion_tokens' })] });
+      return result(valid ? current : { ...current, operations: [operation({ chat_output_parameter: 'automatic' })] }, {}, valid, 3);
+    }
+    return reads(url, current, policyView({ policy: p }));
+  });
+  await c.initialize(binding()); await c.action('resume'); const pending = c.getSnapshot().pending; assert.ok(pending);
+  assert.equal(c.getSnapshot().execution.ledger.held_cny, ledger.held_cny);
+  valid = true; await c.recover(false); assert.deepEqual(c.getSnapshot().pending, pending);
+  await c.recover(true); assert.equal(c.getSnapshot().pending, null); assert.deepEqual(c.getSnapshot().execution.ledger, ledger);
+  assert.equal(c.getSnapshot().execution.operations[0].locally_accounted_cny, null); assert.equal(c.getSnapshot().execution.ledger.provider_bill_confirmed, false);
+});

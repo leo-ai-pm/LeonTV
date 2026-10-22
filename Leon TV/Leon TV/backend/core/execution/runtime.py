@@ -9,6 +9,7 @@ from core.creator.store import CreatorError, digest, utc_now
 from core.execution.policy import (
     SCOPE,
     TrustedInputBounder,
+    chat_output_parameter,
     cost,
     money,
     now,
@@ -172,6 +173,7 @@ class ExecutionRuntime:
             receipt = op["normalized"] or {}
             operations.append({"id": op["id"], "step": op["step"], "status": op["status"], "grant_id": op["grant_id"], "quote_id": op["quote_id"],
                 "wire_api": wire_api(payload["quotes"][op["quote_id"]]["policy"]),
+                **({"chat_output_parameter": chat_output_parameter(payload["quotes"][op["quote_id"]]["policy"])} if wire_api(payload["quotes"][op["quote_id"]]["policy"]) == "chat_completions" else {}),
                 "policy_hash": op["policy_hash"], "context_hash": op["context_hash"], "hold_cny": money(op["hold_units"]),
                 "locally_accounted_cny": money(op["local_units"]) if op["local_units"] is not None else None,
                 **{key: receipt.get(key) for key in ["provider_request_id", "provider_response_id", "input_tokens", "output_tokens", "finish_reason", "response_status", "cached_input_tokens", "reasoning_output_tokens"]},
@@ -457,6 +459,8 @@ class ExecutionRuntime:
                         "hold_units": units(quote["per_call_hold_cny"]), "deadline_at": deadline.isoformat(), "issued_at": utc_now(),
                         "grant_expires_at": grant["expires_at"], "quote_expires_at": quote["expires_at"], **{key: policy[key] for key in ["currency", "max_input_tokens", "max_output_tokens", "max_input_bytes", "max_output_bytes"]}, "nonce": uuid.uuid4().hex}
                     protocol_tag = {"wire_api": policy["wire_api"]} if "wire_api" in policy else {}
+                    if "chat_output_parameter" in policy:
+                        protocol_tag["chat_output_parameter"] = policy["chat_output_parameter"]
                     permit.update(protocol_tag)
                     operation = {"id": operation_id, "task_id": task_id, "step": totals(payload, task_id=task_id)["calls"] + 1,
                         "grant_id": grant["id"], "quote_id": quote["id"], "account_id": policy["account_scope_id"], "snapshot_hash": task["snapshot_hash"], "policy_hash": policy["policy_hash"],
