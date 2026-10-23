@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 import requests
 
 from config import Config
+from core.harness.store import lock_file, unlock_file
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ class TudouClient:
         """Query/download an accepted task; this method never calls the submit endpoint."""
         path = Path(receipt_path)
         receipt = json.loads(path.read_text(encoding="utf-8"))
-        if receipt.get("provider") != "tudou" or not receipt.get("task_id"):
+        if receipt.get("provider") != "tudou" or receipt.get("kind") == "image" or not receipt.get("task_id"):
             raise ValueError("没有已接受的土豆任务，无法继续查询。")
         if receipt.get("base_url") != self.base_url:
             raise ValueError("土豆 API 地址已改变，请恢复原任务使用的地址后再查询。")
@@ -196,26 +197,124 @@ class TudouClient:
             temp_path.unlink(missing_ok=True)
             response.close()
 
+    @staticmethod
+    def _save_image_source(path: Path, source: dict) -> None:
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        try:
+            temporary.write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _complete_image(self, receipt_path: Path, receipt: dict) -> str:
+        task_id = receipt["task_id"]
+        completed = receipt.get("status") == "completed" and isinstance(receipt.get("result"), dict)
+        try:
+            result = receipt["result"] if completed else self._poll(task_id)
+            completed = True
+            receipt.update(status="completed", result=result, error=None)
+            self._save_receipt(receipt_path, receipt)
+            url = self._first_url(result, "image")
+            entry = result["images"][0]
+            path = Path(receipt["save_path"])
+            if not (receipt.get("downloaded") and path.is_file() and path.stat().st_size):
+                self._download(url, path)
+                receipt["downloaded"] = True
+                self._save_receipt(receipt_path, receipt)
+            self._save_image_source(Path(f"{path}.tudou-source.json"),
+                                    {"url": url, "expires_at": entry.get("expires_at")})
+            receipt["source_saved"] = True
+            self._save_receipt(receipt_path, receipt)
+            return str(path)
+        except Exception as exc:
+            if isinstance(exc, TimeoutError) and not completed:
+                error = TudouPollTimeout(task_id)
+            elif isinstance(exc, TudouTaskError):
+                error = exc
+            else:
+                error = TudouTaskError(str(exc), task_id,
+                                       "delivery_failed" if completed else "query_failed",
+                                       "completed" if completed else "unknown")
+            receipt.update(status=error.status, error={"code": error.code, "message": str(error)})
+            try:
+                self._save_receipt(receipt_path, receipt)
+            except Exception:
+                logger.warning("Unable to persist Tudou image state: task_id=%s", task_id)
+            if error is exc:
+                raise
+            raise error from exc
+
+    def _resume_image(self, path: Path, receipt: dict) -> str:
+        if receipt.get("provider") != "tudou" or receipt.get("kind") != "image":
+            raise ValueError("没有土豆图片任务回执，无法继续查询。")
+        if receipt.get("base_url") != self.base_url:
+            raise ValueError("土豆 API 地址已改变，请恢复原任务使用的地址后再查询。")
+        save_path = receipt.get("save_path")
+        if not isinstance(save_path, str) or not save_path or Path(f"{save_path}.tudou-task.json").resolve() != path:
+            raise ValueError("图片输出路径与原任务回执不一致。")
+        if receipt.get("status") in {"failed", "error", "expired", "cancelled", "rejected"}:
+            error = receipt.get("error") or {}
+            raise TudouTaskError(error.get("message") or "土豆图片原任务已终止，请保留原任务记录。",
+                                 receipt.get("task_id"), error.get("code") or "upstream_failed", receipt["status"])
+        if not receipt.get("task_id"):
+            raise TudouTaskError("原提交结果尚未确认，请先核查土豆任务记录，避免重复扣费。",
+                                 None, "submit_unknown", "unknown")
+        return self._complete_image(path, receipt)
+
+    def resume_image(self, receipt_path: str) -> str:
+        """Query/deliver the original image task; never submit a new generation."""
+        path = Path(receipt_path).resolve()
+        lock = lock_file(Path(f"{path}.lock"))
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+            return self._resume_image(path, receipt)
+        finally:
+            unlock_file(lock)
+
     def generate_image(self, prompt: str, image_paths: list[str] | None, ratio: str,
-                       save_dir: str) -> str:
+                       save_dir: str | None = None, *, save_path: str | None = None) -> str:
+        """Generate once per explicit output path, or resume its original task."""
+        self.headers
         body = {"model": "gpt-image-2-all", "prompt": prompt, "size": ratio or "16:9",
                 "resolution": "1k", "quality": "medium"}
         if image_paths:
             body["images"] = [self._reference_image(value) for value in image_paths]
-        task_id = self._submit("/v1/images/generations/async", body)
-        result = self._poll(task_id)
-        url = self._first_url(result, "image")
-        entry = (result.get("images") or [{}])[0]
-        path = Path(save_dir) / f"tudou_{uuid.uuid4().hex}.png"
-        self._download(url, path)
-        sidecar = Path(f"{path}.tudou-source.json")
+        if save_path is None and save_dir is None:
+            raise ValueError("请提供图片输出目录或固定输出路径。")
+        path = (Path(save_path) if save_path is not None else Path(save_dir) / f"tudou_{uuid.uuid4().hex}.png").resolve()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path = Path(f"{path}.tudou-task.json")
+        lock = lock_file(Path(f"{receipt_path}.lock"))
         try:
-            sidecar.write_text(json.dumps({"url": url, "expires_at": entry.get("expires_at")},
-                                          ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            path.unlink(missing_ok=True)
-            raise
-        return str(path)
+            if receipt_path.exists():
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                if receipt.get("request") != body:
+                    raise ValueError("该输出路径已有不同请求的任务回执，请保留原任务并使用新路径。")
+                return self._resume_image(receipt_path, receipt)
+            receipt = {"provider": "tudou", "kind": "image", "base_url": self.base_url,
+                       "request": body, "save_path": str(path), "status": "submitting",
+                       "submitted_at": time.time(), "task_id": None, "downloaded": False, "source_saved": False}
+            self._save_receipt(receipt_path, receipt)
+            try:
+                task_id = self._submit("/v1/images/generations/async", body)
+            except Exception as exc:
+                response = getattr(exc, "response", None)
+                http_status = response.status_code if response is not None else None
+                rejected = http_status is not None and 400 <= http_status < 500 and http_status != 408
+                status, code = ("rejected", "submit_rejected") if rejected else ("unknown", "submit_unknown")
+                message = "土豆 API 拒绝图片提交。" if rejected else "土豆 API 提交结果尚未确认，请先核查提供商任务记录，避免重复扣费。"
+                receipt.update(status=status, error={"code": code, "message": message})
+                self._save_receipt(receipt_path, receipt)
+                raise TudouTaskError(message, None, code, status) from exc
+            receipt.update(task_id=task_id, status="accepted")
+            try:
+                self._save_receipt(receipt_path, receipt)
+            except Exception as exc:
+                raise TudouTaskError("土豆已接受图片任务，但回执保存异常，请先核查原任务。",
+                                     task_id, "receipt_failed", "unknown") from exc
+            return self._complete_image(receipt_path, receipt)
+        finally:
+            unlock_file(lock)
 
     def generate_video(self, prompt: str, image_path: str, save_path: str,
                        model: str = "wan3.0", duration: int = 5,
