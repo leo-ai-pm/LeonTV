@@ -42,6 +42,8 @@ usage只支持三基础整数计数及可选`completion_tokens_details:{reasonin
 
 content内的坏JSON、Markdown或错误工具参数留给原`execute_tool`实际拒绝，真实固定反馈再进入受限修正上下文。完整HTTP回执、工具协议有效、15秒结构有效、内容审阅及平台核费分别记录，不能把一次解码成功当作内容或费用接受。
 
+当前不支持`message.reasoning_content`；usage中的reasoning计数兼容不等于私有推理文本字段已兼容。实际length截断仍拒绝，不提取或拼接残缺计划；长规划输出的剩余问题见验证记录。
+
 失败抛`ChatReceiptDecodeError`，只有固定`EMPIRICAL_CHAT_*` code，不附正文、凭证、URL或原异常片段。不返回部分成功，不授权自动重试或切换模型。
 
 ## 接入后的控制责任

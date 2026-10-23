@@ -95,6 +95,8 @@ D15抽出中性`capture_once`接缝：正式`CapturedTransport`先执行原polic
 
 D16在独立实验层新增纯Chat回执解码器，允许确实缺失的HTTP请求ID，强制保留真实正文ID，单列completion内的reasoning子计数；可选body SHA须匹配原文。原正式normalizer、工具判据和采集文件均未改。内容原串仍由原工具检查，实际费用以独立平台行唯一关联；解码本身不处理账本、工具或恢复。[接口](./PLANNER-CHAT-RECEIPT-API.md) · [验收](./PLANNER-CHAT-RECEIPT-VALIDATION.md)。
 
+该版本真实执行了读源工具，并在核费后发起分镜请求；第二步因length截断停止，未取得计划。当前caller以unknown保守保留风险，HTTP完整、截断输出与平台费用观察另行记录。下一版须处理推理／可见输出预算、私有reasoning_content与可验证的上下文继承，不改写旧状态或把部分输出当作接受。
+
 ## 产品内 Harness 运行基础
 
 Studio 画布右上角的「运行验证 · 测试」连接 `/api/harness/runs`。`core/harness/` 使用真实文件存储与后台执行器，只有 Planner、供应商和 Reviewer 使用确定性测试实现。测试媒体为专用 TEST 合成片段，不引用旧付费样片。
