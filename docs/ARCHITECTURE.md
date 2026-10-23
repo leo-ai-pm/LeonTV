@@ -91,7 +91,9 @@ D11增加固定Chat输出参数；D12补未确认操作的私有诊断及完整�
 
 D14增加服务端显式开启的独立回执采集：先持久化原许可和调用意图，再启动独立解释器，完整记录与提交凭据落盘后才通知观察者。原截止时间与有界清理窗口限制采集；迟到或冲突证据保持隔离。新增 `GET /api/planner/tasks/{task_id}/execution/operations/{operation_id}/receipts/inspect` 和本地 inspect CLI，仅读取已有快照与证据，不走旧查看接口的恢复事务，也不结算、释放预留或继续执行。合成故障验收已通过，默认关闭，生产未启用；旧未知没有因此恢复，也无新的真实分镜或内容接受。[实现合同](./PLANNER-RECEIPT-RECOVERY-API.md) · [最新验证](./PLANNER-RECEIPT-RECOVERY-VALIDATION.md)。
 
-D15抽出中性`capture_once`接缝：正式`CapturedTransport`先执行原policy／journal／permit校验，独立`experiments/planner_live`则接收可信服务端提供的冻结经验风险描述符，两者复用同一worker与回执库。实验适配器只核对意图、实际预留／begin引用、context／原wire及截止时间的关联，不独立证明账本余额或计费硬界，也不执行工具或结算。实际父账本和逐笔核费由私有控制器负责；费用未确认不发下一请求，新unknown停止。代码与合成接入通过，真实新试跑尚未开始，正式生产仍关闭。[D15接口](./PLANNER-EMPIRICAL-CAPTURE-API.md) · [验收与剩余工作](./PLANNER-LIVE-VALIDATION.md)。
+D15抽出中性`capture_once`接缝：正式`CapturedTransport`先执行原policy／journal／permit校验，独立`experiments/planner_live`则接收可信服务端提供的冻结经验风险描述符，两者复用同一worker与回执库。实验适配器只核对意图、实际预留／begin引用、context／原wire及截止时间的关联，不独立证明账本余额或计费硬界，也不执行工具或结算。实际父账本和逐笔核费由私有控制器负责；费用未确认不发下一请求，新unknown停止。代码与合成接入通过，首次真实请求已保存完整HTTP200，但旧caller不接受缺HTTP ID及新增reasoning usage形状，在工具前停止；费用观察不恢复原trial，正式生产仍关闭。[D15接口](./PLANNER-EMPIRICAL-CAPTURE-API.md) · [验收与剩余工作](./PLANNER-LIVE-VALIDATION.md)。
+
+D16在独立实验层新增纯Chat回执解码器，允许确实缺失的HTTP请求ID，强制保留真实正文ID，单列completion内的reasoning子计数；可选body SHA须匹配原文。原正式normalizer、工具判据和采集文件均未改。内容原串仍由原工具检查，实际费用以独立平台行唯一关联；解码本身不处理账本、工具或恢复。[接口](./PLANNER-CHAT-RECEIPT-API.md) · [验收](./PLANNER-CHAT-RECEIPT-VALIDATION.md)。
 
 ## 产品内 Harness 运行基础
 
