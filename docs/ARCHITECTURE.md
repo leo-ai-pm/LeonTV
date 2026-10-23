@@ -97,6 +97,8 @@ D16在独立实验层新增纯Chat回执解码器，允许确实缺失的HTTP请
 
 D17增加纯历史读源证明与完整HTTP／截断输出分层。只有通过独立锚点及原source、descriptor、wire、及时raw、工具反馈和核费关联验证的成功前缀才能继承；不带入后续unknown尾部或私有思考文本，新意图另行冻结并预留。真实F01已提交3镜头、15秒、9:16计划，平台核费后为 `plan_ready`；结构通过，独立Reviewer尚未执行。原累计4次范围已用完，正式生产未开启。[接口](./PLANNER-READ-CONTEXT-API.md) · [验收](./PLANNER-READ-CONTEXT-VALIDATION.md)。
 
+D18增加 `core/planner/review.py` 的独立输入／严格输出合同，以及 `repair.py` 的版本绑定、最小编辑范围和候选约束。Reviewer使用完整冻结来源、原计划和五项规则，独立两消息上下文；不读取生成者推理，输出合法性与判断真实性分开。实际R01对F01 v1的五项判断均 accepted，核费后 `review_completed`；本次无返工任务。真实改稿／复审未执行，没有新增HTTP路由或正式生产开放。[接口](./PLANNER-REVIEW-API.md) · [验收](./PLANNER-REVIEW-VALIDATION.md)。
+
 该版本真实执行了读源工具，并在核费后发起分镜请求；第二步因length截断停止，未取得计划。当前caller以unknown保守保留风险，HTTP完整、截断输出与平台费用观察另行记录。下一版须处理推理／可见输出预算、私有reasoning_content与可验证的上下文继承，不改写旧状态或把部分输出当作接受。
 
 ## 产品内 Harness 运行基础
