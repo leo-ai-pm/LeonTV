@@ -2,6 +2,8 @@
 
 2026-10-23，基线 `6dad96c`。本接口服务于明确经验风险的文本试跑；不修改正式执行 normalizer、许可或计费保护。实现与验证状态见[验证记录](./PLANNER-CHAT-RECEIPT-VALIDATION.md)。
 
+本页记录 D16 合同与当轮调用前边界。当前 D17 对思考文本、截断分类及读源前缀的扩展见[新接口](./PLANNER-READ-CONTEXT-API.md)，最新真实计划与已用完的累计范围见[D17结果](./PLANNER-READ-CONTEXT-VALIDATION.md)。
+
 ## 为什么需要单独解码
 
 D15实际采到了完整HTTP200，但该响应没有`x-request-id`，usage还包含推理token子项。旧实验调用器无法接受这两种形状，trial停止；实际响应仍私有保存。不能生成请求ID，不能把正文ID或平台log ID填成HTTP请求ID，也不能倒改已停止trial的规则。
@@ -42,7 +44,7 @@ usage只支持三基础整数计数及可选`completion_tokens_details:{reasonin
 
 content内的坏JSON、Markdown或错误工具参数留给原`execute_tool`实际拒绝，真实固定反馈再进入受限修正上下文。完整HTTP回执、工具协议有效、15秒结构有效、内容审阅及平台核费分别记录，不能把一次解码成功当作内容或费用接受。
 
-当前不支持`message.reasoning_content`；usage中的reasoning计数兼容不等于私有推理文本字段已兼容。实际length截断仍拒绝，不提取或拼接残缺计划；长规划输出的剩余问题见验证记录。
+在 D16 中尚未支持`message.reasoning_content`；usage中的reasoning计数兼容不等于私有推理文本字段已兼容。D17 已为该字段增加有界私有归档，并新增不返回截断正文的分类入口；本页原解码入口对length仍拒绝，不提取或拼接残缺计划。
 
 失败抛`ChatReceiptDecodeError`，只有固定`EMPIRICAL_CHAT_*` code，不附正文、凭证、URL或原异常片段。不返回部分成功，不授权自动重试或切换模型。
 
@@ -52,4 +54,4 @@ content内的坏JSON、Markdown或错误工具参数留给原`execute_tool`实�
 
 费用关联保留实际body ID、可缺HTTP ID、平台log ID及原body SHA；只接受唯一token/model/group/usage/time行，平台行跨操作不可复用。重新导出不能覆盖旧确认，HTTP ID的None不当作跨调用重复ID；body ID和平台log ID仍须唯一。平台实际导出是费用依据，本地按token估算不是账单。
 
-若以新版本独立意图继续，D15已用1次仍计入累计4次上限，只剩3次新Planner调用，修正累计最多2次，沿用原100元授权和父账本；三条既有unknown及其风险不清除。实验解码接口本身不签发任何额度、Reviewer许可或媒体调用。
+D16 调用前继承 D15 已用1次，当轮最多3次新Planner调用、累计4次、修正累计最多2次，沿用原100元授权和父账本，保留三条既有unknown。其后 D16 用2次、D17用1次，当前已达累计4次并保留四条unknown。实验解码接口本身不签发任何额度、Reviewer许可或媒体调用。

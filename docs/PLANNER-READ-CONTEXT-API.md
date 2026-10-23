@@ -1,6 +1,6 @@
 # 规划上下文继承与截断分层 · D17
 
-本接口用于受控文本试跑。它验证历史上已经成功的读源事件，为新意图生成可核对的上下文；不恢复停止的任务，不签发调用、预算或生产许可。
+本接口用于受控文本试跑。它验证历史上已经成功的读源事件，为新意图生成可核对的上下文；不恢复停止的任务，不签发调用、预算或生产许可。[验证与实际结果](./PLANNER-READ-CONTEXT-VALIDATION.md)。
 
 ## HTTP 完整与输出完整
 
@@ -40,7 +40,7 @@ messages = verified.messages()  # 每次返回新的副本
 
 纯验证器核对来源快照、实际冻结请求、原始停止回执、意图和成功工具事件的指纹、原采集检查、费用关联及原上下文。它不读取配置、文件、Key、账本或网络。原系统未记录的工具完成时间不补造。历史工具反馈的纯校验不算重新执行业务或恢复旧任务。
 
-成功返回不可变 `VerifiedReadContext`，含 `context_json`、`context_hash`、`proof_hash`、`anchors_hash`、`source_snapshot_hash`、`read_operation_key`；`frozen()` 提供版本化描述，不能凭描述反序列化为可信权限。失败只抛 `ReadContextProofError`，固定 code 为 `EMPIRICAL_READ_CONTEXT_REJECTED`，不附私有片段。
+成功返回不可变 `VerifiedReadContext`，含 `context_json`、`context_hash`、`proof_hash`、`anchors_hash`、`source_snapshot_hash`、`read_operation_key`、`parent_task_id`；`frozen()` 提供版本化描述，不能凭描述反序列化为可信权限。失败只抛 `ReadContextProofError`，固定 code 为 `EMPIRICAL_READ_CONTEXT_REJECTED`，不附私有片段。
 
 继承消息仅包含原始 system/user、原读源 assistant 动作及实际工具反馈。后续截断或 unknown 的响应不继承。每次消费都重新验证原证明和可信锚点；新任务另行冻结最终上下文、wire、意图、调用计数、截止时间及预算引用。
 
