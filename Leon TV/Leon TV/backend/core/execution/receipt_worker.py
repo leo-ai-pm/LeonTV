@@ -28,8 +28,14 @@ from core.execution.transport import ResponseUnconfirmed, unconfirmed_code
 def collect(store, claim, job):
     import httpx
 
-    operation, policy = job["operation"], job["policy"]
-    binding = binding_for(operation)
+    if "kind" not in job:
+        operation, policy = job["operation"], job["policy"]
+        binding = binding_for(operation)
+        endpoint, wire, validation_only = policy["endpoint"], operation["wire"], policy["validation_only"]
+    else:
+        from experiments.planner_live.empirical_capture import worker_request
+
+        binding, endpoint, wire, validation_only = worker_request(job, claim)
     require(binding == claim["binding"])
     deadline, cutoff = timestamp(binding["deadline_at"]), timestamp(claim["cleanup_cutoff"])
     if now() >= deadline:
@@ -40,7 +46,7 @@ def collect(store, claim, job):
     if factory is not None:
         module, attribute = factory.split(":")
         transport = getattr(importlib.import_module(module), attribute)(job["worker_options"])
-    require(not policy["validation_only"] or isinstance(transport, httpx.MockTransport))
+    require(not validation_only or isinstance(transport, httpx.MockTransport))
     if now() >= deadline:
         store.error(binding, "OVERALL_DEADLINE")
         return
@@ -57,8 +63,8 @@ def collect(store, claim, job):
     try:
         client = httpx.Client(transport=transport, timeout=max(0.001, (cutoff - now()).total_seconds()), follow_redirects=False,
             trust_env=False, event_hooks={"request": [submit_boundary]})
-        with client.stream("POST", policy["endpoint"], content=operation["wire"].encode("utf-8"),
-            headers={"Content-Type": "application/json", "Authorization": "Bearer " + job["api_key"], "X-Client-Operation-Id": operation["id"]}) as response:
+        with client.stream("POST", endpoint, content=wire.encode("utf-8"),
+            headers={"Content-Type": "application/json", "Authorization": "Bearer " + job["api_key"], "X-Client-Operation-Id": binding["operation_id"]}) as response:
             data = bytearray()
             for chunk in response.iter_bytes():
                 if now() >= cutoff:

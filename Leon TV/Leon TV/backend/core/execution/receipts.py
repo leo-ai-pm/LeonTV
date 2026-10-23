@@ -308,9 +308,13 @@ class ReceiptStore(CreatorBriefStore):
         require(timestamp(raw["received_at"]) <= timestamp(record["commit_started_at"]) <= now())
 
     def inspect(self, operation):
-        binding = binding_for(operation)
-        op = self.operation(operation["id"])
-        result = {"operation_id": operation["id"], "status": "missing", "candidate_count": 0, "binding_verified": False,
+        return self.inspect_binding(operation["id"], binding_for(operation))
+
+    def inspect_binding(self, capture_id, binding):
+        """Read-only inspection against an explicit, server-verified binding."""
+        require(binding["operation_id"] == capture_id)
+        op = self.operation(capture_id)
+        result = {"operation_id": capture_id, "status": "missing", "candidate_count": 0, "binding_verified": False,
             "isolated": True, "recovery_performed": False, "notification_present": False, "body_sha256": None,
             "response_received_at": None, "durable_confirmation_at": None, "original_deadline_at": binding["deadline_at"], "observer_until": None}
         if not op.root.exists():
@@ -402,14 +406,17 @@ class ReceiptStore(CreatorBriefStore):
             return result
 
     def ready_raw(self, operation):
-        result = self.inspect(operation)
+        return self.ready_raw_binding(operation["id"], binding_for(operation))
+
+    def ready_raw_binding(self, capture_id, binding):
+        result = self.inspect_binding(capture_id, binding)
         if result["status"] != "candidate_found" or not result["notification_present"]:
             return None, result
-        op = self.operation(operation["id"])
+        op = self.operation(capture_id)
         names = list(op.root.glob("*.record.json"))
         require(len(names) == 1)
         record = op.read(names[0].name)
-        self._record(record, binding_for(operation))
+        self._record(record, binding)
         return record["raw"], result
 
 
