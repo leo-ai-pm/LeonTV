@@ -70,7 +70,7 @@ def request_id(headers, value):
     return header if header is not None else body
 
 
-def decode_chat_receipt(raw: dict, *, expected_model: str, max_output_tokens: int, scope: str) -> dict:
+def _decode_chat_receipt(raw: dict, *, expected_model: str, max_output_tokens: int, scope: str, allow_truncated: bool) -> dict:
     """Decode one complete empirical receipt, without any external side effect.
 
     output_limit_observed only compares this receipt's completion count with the
@@ -120,18 +120,27 @@ def decode_chat_receipt(raw: dict, *, expected_model: str, max_output_tokens: in
             require(type(choice["index"]) is int and choice["index"] == 0, "CHOICE_INVALID")
         if "logprobs" in choice:
             require(choice["logprobs"] is None, "CHOICE_INVALID")
-        require(choice["finish_reason"] == "stop", "FINISH_REJECTED")
+        finish = choice["finish_reason"]
+        require(type(finish) is str and finish in ({"stop", "length"} if allow_truncated else {"stop"}), "FINISH_REJECTED")
         message = choice["message"]
         require(type(message) is dict, "CONTENT_INVALID")
-        require(set(message) <= {"role", "content", "refusal"}, "UNSUPPORTED_DIMENSION")
+        require(set(message) <= {"role", "content", "refusal", "reasoning_content"}, "UNSUPPORTED_DIMENSION")
         require(message.get("role") == "assistant", "CONTENT_INVALID")
         require("refusal" not in message or message["refusal"] is None, "CONTENT_INVALID")
         content = message.get("content")
-        require(type(content) is str and bool(content.strip()), "CONTENT_INVALID")
+        require(type(content) is str and (finish == "length" or bool(content.strip())), "CONTENT_INVALID")
         try:
             require(len(content.encode("utf-8")) <= MAX_CONTENT_BYTES, "BYTE_LIMIT")
         except UnicodeError:
             raise ChatReceiptDecodeError("EMPIRICAL_CHAT_CONTENT_INVALID") from None
+
+        thought = message.get("reasoning_content")
+        if thought is not None:
+            require(type(thought) is str, "REASONING_INVALID")
+            try:
+                require(len(thought.encode("utf-8")) <= MAX_CONTENT_BYTES, "BYTE_LIMIT")
+            except UnicodeError:
+                raise ChatReceiptDecodeError("EMPIRICAL_CHAT_REASONING_INVALID") from None
 
         usage = value.get("usage")
         base = {"prompt_tokens", "completion_tokens", "total_tokens"}
@@ -148,8 +157,29 @@ def decode_chat_receipt(raw: dict, *, expected_model: str, max_output_tokens: in
             require(type(reasoning) is int and 0 <= reasoning <= counts["completion_tokens"], "REASONING_INVALID")
         return {"parsed": value, "content": content, "provider_request_id": provider_request_id,
             "provider_response_id": value["id"], "usage": counts, "reasoning_tokens": reasoning,
-            "output_limit_observed": counts["completion_tokens"] <= max_output_tokens, "finish_reason": "stop"}
+            "output_limit_observed": counts["completion_tokens"] <= max_output_tokens, "finish_reason": finish}
     except ChatReceiptDecodeError:
         raise
     except Exception:
         raise ChatReceiptDecodeError("EMPIRICAL_CHAT_ENVELOPE_INVALID") from None
+
+
+def decode_chat_receipt(raw: dict, *, expected_model: str, max_output_tokens: int, scope: str) -> dict:
+    """Original stop-only eight-field decoder; parsed is private archival data."""
+    return _decode_chat_receipt(raw, expected_model=expected_model, max_output_tokens=max_output_tokens,
+        scope=scope, allow_truncated=False)
+
+
+def inspect_chat_receipt(raw: dict, *, expected_model: str, max_output_tokens: int, scope: str) -> dict:
+    """Classify a validated complete HTTP envelope; truncation yields no content.
+
+    A truncated receipt cannot authorize tool execution, retry or risk release.
+    The complete branch's decoded.parsed must remain private, including reasoning.
+    """
+    decoded = _decode_chat_receipt(raw, expected_model=expected_model, max_output_tokens=max_output_tokens,
+        scope=scope, allow_truncated=True)
+    truncated = decoded["finish_reason"] == "length"
+    metadata = {name: decoded[name] for name in ("provider_request_id", "provider_response_id", "usage",
+        "reasoning_tokens", "output_limit_observed", "finish_reason")}
+    return {"classification": "truncated" if truncated else "complete", "metadata": metadata,
+        "decoded": None if truncated else decoded}

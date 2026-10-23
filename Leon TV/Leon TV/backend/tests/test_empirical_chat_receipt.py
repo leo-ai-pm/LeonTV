@@ -294,3 +294,57 @@ def test_original_formal_normalizer_keeps_missing_http_id_details_and_limit_reje
     for envelope, expected_error in cases:
         result, error = normalized(envelope, p, cost(p["max_input_tokens"], p["max_output_tokens"], p))
         assert error == expected_error and result["local_units"] is None
+
+
+@pytest.mark.parametrize("thought", [None, "", "SYNTHETIC PRIVATE THOUGHT", "中" * 21845 + "a"], ids=["null", "empty", "text", "utf8_boundary"])
+def test_optional_reasoning_text_stays_only_in_private_parsed_body(thought):
+    value = body()
+    value["choices"][0]["message"]["reasoning_content"] = thought
+    result = decode(raw(value))
+    assert len(result) == 8 and result["content"] == ACTION
+    assert result["parsed"]["choices"][0]["message"]["reasoning_content"] == thought
+    assert "reasoning_content" not in {key for key in result if key != "parsed"}
+
+
+@pytest.mark.parametrize("thought", [False, 1, [], {}, "a" * 65537, "\ud800"], ids=["bool", "int", "list", "dict", "oversize", "invalid_utf8"])
+def test_reasoning_text_type_utf8_and_byte_limit_remain_strict(thought):
+    value = body()
+    value["choices"][0]["message"]["reasoning_content"] = thought
+    data = json.dumps(value, ensure_ascii=True).encode()
+    rejected(raw(data=data))
+
+
+@pytest.mark.parametrize("finish,content,classification", [("stop", ACTION, "complete"), ("length", '{"partial":', "truncated"), ("length", "", "truncated")])
+def test_inspection_distinguishes_complete_and_truncated_without_executable_tail(finish, content, classification):
+    value = body()
+    value["choices"][0]["finish_reason"] = finish
+    value["choices"][0]["message"].update(content=content, reasoning_content="SYNTHETIC PRIVATE THOUGHT")
+    envelope = raw(value)
+    result = module().inspect_chat_receipt(envelope, expected_model=MODEL, max_output_tokens=2048, scope=SCOPE)
+    assert set(result) == {"classification", "metadata", "decoded"} and result["classification"] == classification
+    assert set(result["metadata"]) == {"provider_request_id", "provider_response_id", "usage", "reasoning_tokens", "output_limit_observed", "finish_reason"}
+    assert "SYNTHETIC PRIVATE THOUGHT" not in json.dumps(result["metadata"])
+    if classification == "truncated":
+        assert result["decoded"] is None and "partial" not in json.dumps(result)
+        rejected(envelope, "FINISH_REJECTED")
+    else:
+        assert result["decoded"] == decode(envelope)
+
+
+@pytest.mark.parametrize("case", ["usage", "unknown_message", "reasoning_text", "id", "http"])
+def test_truncated_inspection_still_validates_complete_envelope_before_classification(case):
+    value = body()
+    value["choices"][0]["finish_reason"] = "length"
+    if case == "usage":
+        value["usage"]["total_tokens"] += 1
+    elif case == "unknown_message":
+        value["choices"][0]["message"]["tool_calls"] = []
+    elif case == "reasoning_text":
+        value["choices"][0]["message"]["reasoning_content"] = {}
+    elif case == "id":
+        value.pop("id")
+    envelope = raw(value)
+    if case == "http":
+        envelope["http_status"] = 524
+    with pytest.raises(module().ChatReceiptDecodeError):
+        module().inspect_chat_receipt(envelope, expected_model=MODEL, max_output_tokens=2048, scope=SCOPE)
