@@ -102,16 +102,16 @@ The creative execution layer remains a fixed stage state machine. The Harness ru
 | Planning authorization and cost gates | Validated with synthetic transport | Server quotes, explicit grants, atomic reservations, cumulative limits and receipt reconciliation; local pricing is not a provider bill |
 | Detached receipt capture and read-only inspection | Synthetic fault acceptance passed | Explicit opt-in, durable commit before notification, bounded collection after observer exit and isolated late evidence; inspection cannot resubmit or settle; capture off by default |
 | Empirical-risk trial integration | Real planning and independent text review executed | Exact storyboard v1 persisted and charges reconciled; integration into formal product runs remains pending |
-| Asset role and first frames | Three real images delivered; visual acceptance pending | Shared definitions, frame references, accepted-task recovery and one failed-task retry |
+| Asset role and first frames | Final three-frame set passed independent visual review | Shared definitions, local image versions and complete-set rechecks; video and human acceptance pending |
 | Chat / Responses text protocols | Explicit server adapters | Fixed protocol and model without fallback; stateless text requests and conservative reasoning/cache usage handling; empirical Gemini receipts validated; a hard billing bound remains unestablished |
-| Production quality review and repair | Integration pending | Existing adapters and trials do not yet form a complete product loop |
+| Production quality review and repair | Controlled image loop exercised | Independent visual findings, targeted revisions and rechecks; product-runtime vision integration pending |
 | Frozen briefs and bounded planner loop | Integrated offline | Real tasks, tools, persistence and recovery with synthetic model responses; valid structure remains unreviewed quality |
-| Live-role product loop and automatic local repair | Production integration pending | Controlled trials reached first frames; visual review, creative repair and final-video acceptance remain pending |
+| Live-role product loop and automatic local repair | Production integration pending | Controlled trials exercised visual review and local image repair; video production and final acceptance remain pending |
 | Agent-to-Agent, long-term personal memory, Personal Agent | Future direction | Not currently delivered product capabilities |
 
 [Real planning](./docs/PLANNER-READ-CONTEXT-VALIDATION.md) persisted a three-shot, 15-second, 9:16 storyboard. An [independent text Reviewer](./docs/PLANNER-REVIEW-VALIDATION.md) accepted all five criteria for that exact v1. Source, versions, receipts and platform charges are checked separately from image and finished-video acceptance.
 
-The [asset-role trial](./docs/ASSET-HANDOFF-VALIDATION.md) delivered three real portrait frames, using shared character/scene definitions and previous-frame references. Recovery of accepted tasks and one separately bounded retry were exercised. Net observed fees were CNY 0.130818; 1123 full tests passed. Prop continuity and character distinction still need visual review. Next come visual review and local repair, followed by two 15-second video-model samples. Production integration, human acceptance and the [full autonomous collaboration goal](./docs/AUTONOMOUS-COLLABORATION-GOAL.md) remain in development.
+The [asset-role trial](./docs/ASSET-HANDOFF-VALIDATION.md) produced real frames. [Independent visual review and local repair](./docs/ASSET-VISUAL-REVIEW-VALIDATION.md) corrected props, framing and close-up composition; the final three-frame set passed. Three revisions incurred CNY 0.12 in observed platform fees; 1174 tests and 5 subtests passed. Visual inspection used an independent Codex Agent; a vision model is not yet integrated into the product runtime. Next are two 15-second video-model samples. Product integration, human acceptance and the [full autonomous collaboration goal](./docs/AUTONOMOUS-COLLABORATION-GOAL.md) remain in development.
 
 ## Quick start
 

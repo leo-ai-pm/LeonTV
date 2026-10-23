@@ -103,6 +103,8 @@ D18增加 `core/planner/review.py` 的独立输入／严格输出合同，以及
 
 D19增加 `core/planner/assets.py` 的严格素材清单与首帧文本任务；共享定型由程序逐镜注入，来源、计划、accepted审阅和清单摘要绑定。受控实测已交付三张真实首帧，含原任务GET恢复及一次独立失败重试；正式产品HTTP入口未新增，视觉审阅／内容返工仍待接入。原生媒体尺寸与格式、转存PNG的像素一致性、平台收费及退款分别记录。[合同](./ASSET-HANDOFF-API.md) · [实测](./ASSET-HANDOFF-VALIDATION.md)。
 
+D20新增 `core/planner/asset_review.py` 的完整图片集绑定、严格三态审阅和局部图片版本合同。受控实际首帧经过独立 Codex 看图、三次指定修订与全组合复核后通过；来源、分镜和清单仍为v1。实际执行由统筹冻结的私有调用器控制，纯合同随后回放实际版本链；未新增产品视觉模型、调度或HTTP入口。平台关联恢复的证据强度与原始POST回执分开记录。[合同](./ASSET-VISUAL-REVIEW-API.md) · [验收](./ASSET-VISUAL-REVIEW-VALIDATION.md)。
+
 ## 产品内 Harness 运行基础
 
 Studio 画布右上角的「运行验证 · 测试」连接 `/api/harness/runs`。`core/harness/` 使用真实文件存储与后台执行器，只有 Planner、供应商和 Reviewer 使用确定性测试实现。测试媒体为专用 TEST 合成片段，不引用旧付费样片。
