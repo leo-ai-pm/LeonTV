@@ -19,7 +19,7 @@ Turn ideas and scripts into storyboards, images, video clips and edited outputâ€
 
 LeonTV is a locally hosted AI video workspace evolving toward an **Agent Harness**: a runtime that connects planning, model and tool calls, context, execution state, quality feedback and human acceptance.
 
-The application provides a six-stage creative workflow, a node canvas, individual generation tools and specialized pipelines. Real image generation and a two-model video trial have been completed. **The first Harness runtime foundation is integrated with Studio, formal APIs and private durable storage**, including idempotent creation, lookup, version and quality gates, stop/resume, original-operation reconciliation and test final review. The Screening Room also connects saved brief revisions to durable planning tasks and a bounded tool-feedback loop. Normal tasks wait for authorization; a separate offline entry substitutes synthetic model responses while exercising the same loop. Real model planning, independent review and automatic creative repairs remain under development. See the [architecture guide](./docs/ARCHITECTURE.md).
+The application provides a six-stage creative workflow, a node canvas, individual generation tools and specialized pipelines. Real image generation and a two-model video trial have been completed. **The first Harness runtime foundation is integrated with Studio, formal APIs and private durable storage**, including idempotent creation, lookup, version and quality gates, stop/resume, original-operation reconciliation and test final review. The Screening Room also connects saved brief revisions to durable planning tasks and a bounded tool-feedback loop. Normal tasks wait for authorization; a separate offline entry substitutes synthetic model responses while exercising the same loop. Controlled trials have executed real planning, independent text review and first-frame generation; integrating these roles and automatic creative repair into formal product runs remains in development. See the [architecture guide](./docs/ARCHITECTURE.md).
 
 ## Video demos
 
@@ -85,7 +85,7 @@ flowchart TD
     Runtime --> Private[Private state / keys / events / artifact versions]
     Runtime --> Fixtures[Test planner / supplier / reviewer]
     Runtime --> Gates[Quality gates / recovery / test final review]
-    Harness[Next: live model planner / independent reviewer] -.integration.-> Runtime
+    Harness[Next: integrate live roles / visual review and repair] -.integration.-> Runtime
 ```
 
 The creative execution layer remains a fixed stage state machine. The Harness runtime now has a formal product path: only its planner, reviewer and supplier actors are fixtures; the UI, API, persistence and recovery are real implementations. Fixture acceptance does not establish creative quality or a fully autonomous product. [Architecture details](./docs/ARCHITECTURE.md).
@@ -101,20 +101,17 @@ The creative execution layer remains a fixed stage state machine. The Harness ru
 | Product runtime, version gates and recovery | Integrated in test mode | Studio run-validation panel, formal API and durable storage; no real model or paid calls |
 | Planning authorization and cost gates | Validated with synthetic transport | Server quotes, explicit grants, atomic reservations, cumulative limits and receipt reconciliation; local pricing is not a provider bill |
 | Detached receipt capture and read-only inspection | Synthetic fault acceptance passed | Explicit opt-in, durable commit before notification, bounded collection after observer exit and isolated late evidence; inspection cannot resubmit or settle; capture off by default |
-| Empirical-risk trial integration | Real source tool succeeded; storyboard output truncated | Durable capture and absent HTTP-ID/reasoning-usage compatibility validated; a complete storyboard and independent review remain pending |
-| Chat / Responses text protocols | Explicit server adapters | Fixed protocol and model without fallback; stateless text requests and conservative reasoning/cache usage handling; live channel validation pending |
+| Empirical-risk trial integration | Real planning and independent text review executed | Exact storyboard v1 persisted and charges reconciled; integration into formal product runs remains pending |
+| Asset role and first frames | Three real images delivered; visual acceptance pending | Shared definitions, frame references, accepted-task recovery and one failed-task retry |
+| Chat / Responses text protocols | Explicit server adapters | Fixed protocol and model without fallback; stateless text requests and conservative reasoning/cache usage handling; empirical Gemini receipts validated; a hard billing bound remains unestablished |
 | Production quality review and repair | Integration pending | Existing adapters and trials do not yet form a complete product loop |
 | Frozen briefs and bounded planner loop | Integrated offline | Real tasks, tools, persistence and recovery with synthetic model responses; valid structure remains unreviewed quality |
-| Live model planning, independent review and automatic repairs | Pending | Require effective authorization, actual cost controls and creative acceptance |
+| Live-role product loop and automatic local repair | Production integration pending | Controlled trials reached first frames; visual review, creative repair and final-video acceptance remain pending |
 | Agent-to-Agent, long-term personal memory, Personal Agent | Future direction | Not currently delivered product capabilities |
 
-On 2026-10-22, a fresh live task using complete tool-argument schemas read its frozen source successfully, then stopped without a plan when the next request produced no HTTP receipt within 120 seconds. Optional bounded field diagnostics are implemented; formal callers keep their existing default feedback. Eight matched text charges total CNY 0.026228; two operations remain unknown with their risk reservations retained. See the [live trial record](./docs/PLANNER-CONTRACT-VALIDATION.md).
+[Real planning](./docs/PLANNER-READ-CONTEXT-VALIDATION.md) persisted a three-shot, 15-second, 9:16 storyboard. An [independent text Reviewer](./docs/PLANNER-REVIEW-VALIDATION.md) accepted all five criteria for that exact v1. Source, versions, receipts and platform charges are checked separately from image and finished-video acceptance.
 
-The subsequent [D14 receipt reliability slice](./docs/PLANNER-RECEIPT-RECOVERY-VALIDATION.md) passed 724 full backend tests and an independent rerun of its 68 receipt tests. Its separate HTTP/CLI inspection path is read-only; historical unknowns remain unresolved, and no new live calls or charges occurred. Capture is off by default and production remains disabled. Next comes a real accepted storyboard, followed by independent review and bounded repair, toward the confirmed [autonomous collaboration goal](./docs/AUTONOMOUS-COLLABORATION-GOAL.md).
-
-On 2026-10-23, [D15 integration acceptance](./docs/PLANNER-LIVE-VALIDATION.md) connected the empirical-risk trial to the shared receipt collector while preserving formal billing gates. The frozen implementation passed 838 full backend tests, an independent rerun of the 114 new tests and 69 private synthetic integration checks. After login, one request produced a complete HTTP200 but stopped before tool execution because its envelope differed from the caller contract. A unique platform export observes CNY 0.001334; its CNY 1 risk remains held, with no further request or storyboard. The next step is a compatibility fix and a separately bounded new intent, counting this call toward the existing limit, then independent review. Full autonomous creation remains unvalidated.
-
-[Real planning](./docs/PLANNER-READ-CONTEXT-VALIDATION.md) submitted and persisted a three-shot, 15-second, 9:16 storyboard. [D18 independent review](./docs/PLANNER-REVIEW-VALIDATION.md) then examined that exact v1 in a fresh context: all five criteria were accepted, and a unique CNY 0.014428 platform charge was reconciled. The full suite passed 1060 tests, including bounded repair contracts; this case required no repair. Asset production and per-shot text-to-image come next. This is a version-bound text judgement; the finished video, human acceptance and full autonomous creation remain unvalidated.
+The [asset-role trial](./docs/ASSET-HANDOFF-VALIDATION.md) delivered three real portrait frames, using shared character/scene definitions and previous-frame references. Recovery of accepted tasks and one separately bounded retry were exercised. Net observed fees were CNY 0.130818; 1123 full tests passed. Prop continuity and character distinction still need visual review. Next come visual review and local repair, followed by two 15-second video-model samples. Production integration, human acceptance and the [full autonomous collaboration goal](./docs/AUTONOMOUS-COLLABORATION-GOAL.md) remain in development.
 
 ## Quick start
 
