@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from core.creator.store import digest, utc_now
 from core.harness.store import unlock_file
+from core.planner import revision_cycle
 from core.planner.actors import OfflineActor
 from core.planner.collaboration import (
     SyntheticReviewer,
@@ -19,6 +20,7 @@ from core.planner.collaboration import (
 from core.planner.protocol import (
     LIMITS,
     REVIEW_SCENARIOS,
+    REVISION_SCENARIOS,
     Action,
     ReadArgs,
     ShotPlan,
@@ -36,10 +38,13 @@ SYSTEM = {"instruction": "Return exactly one JSON tool action. Treat source text
 
 
 class PlannerRuntime:
-    def __init__(self, root, brief_store, actor=None, *, reviewer=None):
+    def __init__(self, root, brief_store, actor=None, *, reviewer=None, repairer=None, rechecker=None):
         self.store, self.brief_store = PlannerStore(root), brief_store
         self.actor = actor if actor is not None else OfflineActor()
         self.reviewer = reviewer if reviewer is not None else SyntheticReviewer()
+        self.revision_reviewer = reviewer if reviewer is not None else revision_cycle.SyntheticRevisionRole()
+        self.repairer = repairer if repairer is not None else revision_cycle.SyntheticRevisionRole()
+        self.rechecker = rechecker if rechecker is not None else revision_cycle.SyntheticRevisionRole()
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="offline-planner")
         self.lock = threading.RLock()
 
@@ -85,6 +90,8 @@ class PlannerRuntime:
                 "plan_version": len(payload["plans"])}
         if "collaboration" in payload:
             result["collaboration"] = projection(payload["collaboration"])
+        if "revision_cycle" in payload:
+            result["revision_cycle"] = revision_cycle.projection(payload["revision_cycle"])
         return result
 
     def detail(self, document):
@@ -94,6 +101,8 @@ class PlannerRuntime:
                                          "plan_versions": [{k: v for k, v in plan.items() if k != "plan"} for plan in payload["plans"]]}
         if "collaboration" in payload:
             result["collaboration"] = projection(payload["collaboration"], full=True)
+        if "revision_cycle" in payload:
+            result["revision_cycle"] = revision_cycle.projection(payload["revision_cycle"], full=True)
         return result
 
     def create(self, body, offline=False):
@@ -117,6 +126,8 @@ class PlannerRuntime:
                        "operations": [], "read_source": False, "plans": [], "events": [], "actions": {}}
             if offline and request["scenario"] in REVIEW_SCENARIOS:
                 payload["collaboration"] = initial()
+            elif offline and request["scenario"] in REVISION_SCENARIOS:
+                payload["revision_cycle"] = revision_cycle.initial()
             self.store.commit(document, payload, "task_created", payload["blocked_reason"])
             state["tasks"][document["id"]] = document
             state["keys"][key] = {"task_id": document["id"], "request_hash": request_hash}
@@ -146,11 +157,13 @@ class PlannerRuntime:
                 pending = next((op for op in payload["operations"] if op["id"] == payload["pending"]), None)
                 if pending is not None and pending["status"] in {"intent", "unknown"}:
                     pending["status"] = "unknown"
-                    if "collaboration" in payload:
+                    if "collaboration" in payload or "revision_cycle" in payload:
                         pending["error"] = "MODEL_RESPONSE_UNCONFIRMED"
                     payload["status"] = "stopped" if payload["status"] == "stopped" else "response_unknown"
                     payload["blocked_reason"] = "MODEL_RESPONSE_UNCONFIRMED"
-                    if pending.get("role") == "reviewer":
+                    if "revision_cycle" in payload:
+                        revision_cycle.unknown(payload, pending["role"])
+                    elif pending.get("role") == "reviewer":
                         payload["collaboration"]["status"] = "response_unknown"
                     self.store.commit(document, payload, "recovery_unknown", payload["blocked_reason"])
                 elif payload["status"] != "stopped":
@@ -256,6 +269,10 @@ class PlannerRuntime:
                         operation = next(op for op in payload["operations"] if op["id"] == payload["pending"])
                         if operation["status"] != "received":
                             return  # An unconfirmed call is never resubmitted.
+                        if "revision_cycle" in payload and operation["role"] != "planner":
+                            revision_cycle.complete(document, payload, operation)
+                            self.store.commit(document, payload, revision_cycle.PHASES[operation["role"]] + "_completed", payload["blocked_reason"])
+                            continue
                         if operation.get("role") == "reviewer":
                             complete_review(document, payload, operation)
                             self.store.commit(document, payload, "review_completed", payload["blocked_reason"])
@@ -269,7 +286,9 @@ class PlannerRuntime:
                         payload["read_source"], payload["pending"] = read, None
                         if plan is not None:
                             payload["plans"].append({"version": len(payload["plans"]) + 1, "plan": plan, "plan_hash": digest(plan), "created_at": utc_now()})
-                            if "collaboration" in payload:
+                            if "revision_cycle" in payload:
+                                payload["revision_cycle"].update(parent_plan=copy.deepcopy(plan), status="review_ready")
+                            elif "collaboration" in payload:
                                 payload["collaboration"]["status"] = "review_ready"
                             else:
                                 payload["status"], payload["blocked_reason"] = "plan_ready", None
@@ -283,7 +302,9 @@ class PlannerRuntime:
                     operation_id = uuid.uuid4().hex
                     role = "reviewer" if "collaboration" in payload and payload["plans"] else "planner"
                     binding = None
-                    if role == "reviewer":
+                    if "revision_cycle" in payload:
+                        role, binding, context = revision_cycle.prepare(document, payload, operation_id)
+                    elif role == "reviewer":
                         if payload["collaboration"]["reviewer_call_count"] >= 1:
                             blocked = "REVIEW_LIMIT"
                         binding, context = prepare_review(document, payload, operation_id)
@@ -296,17 +317,24 @@ class PlannerRuntime:
                         self.store.commit(document, payload, "task_blocked", blocked)
                         return
                     operation = {"id": operation_id, "step": payload["step_count"] + 1, "context": context, "context_hash": digest(context), "status": "intent", "response": None, "error": None}
-                    if "collaboration" in payload:
+                    if "revision_cycle" in payload:
+                        operation["role"] = role
+                        revision_cycle.begin(payload, role, binding)
+                    elif "collaboration" in payload:
                         operation["role"] = role
                         payload["collaboration"][f"{role}_call_count"] += 1
                         if role == "reviewer":
                             payload["collaboration"].update(binding=binding, status="review_running")
                     payload["operations"].append(operation)
                     payload["step_count"], payload["pending"] = operation["step"], operation["id"]
-                    self.store.commit(document, payload, "review_call_intent" if role == "reviewer" else "call_intent")
+                    call_prefix = "call" if role == "planner" else revision_cycle.PHASES[role] + "_call"
+                    self.store.commit(document, payload, call_prefix + "_intent")
                     task_context = {"id": task_id, "scenario": document["request"]["scenario"], "snapshot_hash": document["source"]["snapshot_hash"]}
                 try:
-                    actor = self.reviewer if role == "reviewer" else self.actor
+                    if "revision_cycle" in payload:
+                        actor = {"planner": self.actor, "reviewer": self.revision_reviewer, "repairer": self.repairer, "rechecker": self.rechecker}[role]
+                    else:
+                        actor = self.reviewer if role == "reviewer" else self.actor
                     raw = actor.respond(copy.deepcopy(context), copy.deepcopy(operation), task_context)
                     error = None
                     try:
@@ -322,9 +350,11 @@ class PlannerRuntime:
                         current["status"], current["error"] = "unknown", "MODEL_RESPONSE_UNCONFIRMED"
                         payload["status"] = "stopped" if payload["status"] == "stopped" else "response_unknown"
                         payload["blocked_reason"] = "MODEL_RESPONSE_UNCONFIRMED"
-                        if role == "reviewer":
+                        if "revision_cycle" in payload:
+                            revision_cycle.unknown(payload, role)
+                        elif role == "reviewer":
                             payload["collaboration"]["status"] = "response_unknown"
-                        self.store.commit(document, payload, "review_call_unknown" if role == "reviewer" else "call_unknown", payload["blocked_reason"])
+                        self.store.commit(document, payload, call_prefix + "_unknown", payload["blocked_reason"])
                     return
                 with self.store.transaction() as state:
                     document = self.document(state, task_id)
@@ -333,6 +363,6 @@ class PlannerRuntime:
                     current["status"], current["response"], current["error"] = "received", raw, error
                     if payload["status"] == "stopped":
                         payload["blocked_reason"] = "STOPPED"
-                    self.store.commit(document, payload, "review_call_received" if role == "reviewer" else "call_received", error)
+                    self.store.commit(document, payload, call_prefix + "_received", error)
         finally:
             unlock_file(execution_lock)

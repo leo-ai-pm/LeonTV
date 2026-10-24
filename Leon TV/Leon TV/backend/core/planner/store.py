@@ -1,6 +1,7 @@
 """Private cross-process append-only logical task journal, rejecting damaged data."""
 
 import copy
+import hashlib
 import json
 import os
 import tempfile
@@ -22,6 +23,7 @@ from core.harness.store import lock_file, unlock_file
 from core.planner.protocol import (
     LIMITS,
     REVIEW_SCENARIOS,
+    REVISION_SCENARIOS,
     SCENARIOS,
     STATUSES,
     checked_plan,
@@ -40,6 +42,23 @@ def require(condition):
 
 SOURCE_FIELDS = {"brief_id", "brief_revision", "source_version", "source_hash", "snapshot_hash", "title", "script", "requirements", "production", "budget_cny", "currency", "frozen_at"}
 PAYLOAD_FIELDS = {"status", "blocked_reason", "step_count", "repair_count", "pending", "messages", "operations", "read_source", "plans", "events", "actions"}
+
+
+def _json_tree(value):
+    if type(value) is dict:
+        return all(type(key) is str and _json_tree(item) for key, item in value.items())
+    if type(value) is list:
+        return all(_json_tree(item) for item in value)
+    return value is None or type(value) in {str, int, float, bool}
+
+
+def _state_fingerprint(state):
+    try:
+        require(_json_tree(state))
+        wire = json.dumps(state, sort_keys=True, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        return hashlib.sha256(wire).hexdigest()
+    except (ValueError, TypeError, OverflowError, UnicodeError, RecursionError):
+        raise PlannerError("CORRUPT_STORAGE", "Planner storage failed integrity checks") from None
 
 
 def check_source(source):
@@ -80,15 +99,19 @@ def validate_state(state):
             require(frame["previous_hash"] == (previous["hash"] if previous else None) and frame["hash"] == frame_hash(document, frame))
             payload = frame["payload"]
             collaboration = request["mode"] == "offline_test" and request["scenario"] in REVIEW_SCENARIOS
-            require(set(payload) == PAYLOAD_FIELDS | ({"collaboration"} if collaboration else set()) and payload["status"] in STATUSES)
+            revision = request["mode"] == "offline_test" and request["scenario"] in REVISION_SCENARIOS
+            extra = {"revision_cycle"} if revision else {"collaboration"} if collaboration else set()
+            require(set(payload) == PAYLOAD_FIELDS | extra and payload["status"] in STATUSES)
             require(type(payload["step_count"]) is int and 0 <= payload["step_count"] <= LIMITS["max_steps"])
             require(type(payload["repair_count"]) is int and 0 <= payload["repair_count"] <= LIMITS["max_repairs"])
             require(type(payload["read_source"]) is bool and isinstance(payload["messages"], list) and isinstance(payload["operations"], list))
             require(len(payload["operations"]) == payload["step_count"])
             ids = []
             for step, operation in enumerate(payload["operations"], 1):
-                require(set(operation) == {"id", "step", "context", "context_hash", "status", "response", "error"} | ({"role"} if collaboration else set()))
-                if collaboration:
+                require(set(operation) == {"id", "step", "context", "context_hash", "status", "response", "error"} | ({"role"} if collaboration or revision else set()))
+                if revision:
+                    require(operation["role"] in {"planner", "reviewer", "repairer", "rechecker"})
+                elif collaboration:
                     require(operation["role"] in {"planner", "reviewer"})
                 require(bool(ID_RE.fullmatch(operation["id"])) and type(operation["step"]) is int and operation["step"] == step)
                 require(operation["context_hash"] == digest(operation["context"]) and operation["status"] in {"intent", "received", "processed", "unknown"})
@@ -101,7 +124,11 @@ def validate_state(state):
                 require(set(plan) == {"version", "plan", "plan_hash", "created_at"} and type(plan["version"]) is int and plan["version"] == version)
                 checked, error = checked_plan(plan["plan"], source["snapshot_hash"])
                 require(error is None and plan["plan_hash"] == digest(checked))
-            if collaboration:
+            if revision:
+                from core.planner.revision_cycle import validate
+
+                validate(document, payload, previous["payload"] if previous else None)
+            elif collaboration:
                 from core.planner.collaboration import validate
 
                 validate(document, payload, previous["payload"] if previous else None)
@@ -133,10 +160,11 @@ class PlannerStore(CreatorBriefStore):
                     validate_state(state)
                 except (CreatorError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, ArithmeticError, RecursionError):
                     raise PlannerError("CORRUPT_STORAGE", "Planner storage failed integrity checks") from None
-                before = copy.deepcopy(state)
+                before = _state_fingerprint(state)
                 yield state
-                validate_state(state)
-                if state != before or not path.exists():
+                after = _state_fingerprint(state)
+                if after != before or not path.exists():
+                    validate_state(state)
                     fd, temporary = tempfile.mkstemp(prefix=".planner-", dir=self.root)
                     try:
                         with os.fdopen(fd, "w", encoding="utf-8") as stream:

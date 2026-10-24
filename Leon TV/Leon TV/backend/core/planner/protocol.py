@@ -9,7 +9,8 @@ from core.creator.store import unique_object
 
 LIMITS = {"max_steps": 6, "max_repairs": 2, "max_output_bytes": 65536, "max_context_bytes": 1048576}
 REVIEW_SCENARIOS = {"review_accepted", "review_rejected", "review_unknown", "review_response_unknown", "review_invalid"}
-SCENARIOS = {"success", "repair", "invalid_tool", "step_limit", "response_unknown"} | REVIEW_SCENARIOS
+REVISION_SCENARIOS = {"revision_accepted", "revision_rejected", "revision_needs_input", "revision_invalid", "revision_response_unknown", "recheck_unknown", "recheck_response_unknown", "recheck_invalid"}
+SCENARIOS = {"success", "repair", "invalid_tool", "step_limit", "response_unknown"} | REVIEW_SCENARIOS | REVISION_SCENARIOS
 STATUSES = {"awaiting_authorization", "ready", "queued", "running", "stopped", "response_unknown", "plan_ready", "blocked"}
 ShotId = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")]
 

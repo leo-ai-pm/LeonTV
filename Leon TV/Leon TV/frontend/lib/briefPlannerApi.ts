@@ -1,4 +1,5 @@
 import type { PlannerActionRequest, PlannerCollaborationDetail, PlannerCollaborationSummary, PlannerCreate, PlannerDetail, PlannerEvent, PlannerFrozenBrief, PlannerOfflineCreate, PlannerPlan, PlannerRepairTask, PlannerReviewBinding, PlannerReviewFinding, PlannerReviewReport, PlannerReviewRuleId, PlannerReviewScenario, PlannerReviewTarget, PlannerReviewVerdict, PlannerScenario, PlannerSource, PlannerSummary, PlannerWrite } from './briefPlannerTypes';
+import { PLANNER_REVISION_SCENARIOS, PlannerRevisionCycleReader } from './plannerRevisionCycle';
 
 export class BriefPlannerError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -10,7 +11,7 @@ const positive = (v: unknown): v is number => count(v) && v >= 1;
 const key = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{8,128}$/.test(v);
 const text = (v: unknown): v is string => typeof v === 'string';
 export const PLANNER_REVIEW_SCENARIOS: PlannerReviewScenario[] = ['review_accepted', 'review_rejected', 'review_unknown', 'review_response_unknown', 'review_invalid'];
-export const PLANNER_SCENARIOS: PlannerScenario[] = ['success', 'repair', 'invalid_tool', 'step_limit', 'response_unknown', ...PLANNER_REVIEW_SCENARIOS];
+export const PLANNER_SCENARIOS: PlannerScenario[] = ['success', 'repair', 'invalid_tool', 'step_limit', 'response_unknown', ...PLANNER_REVIEW_SCENARIOS, ...PLANNER_REVISION_SCENARIOS];
 export const PLANNER_REVIEW_RULE_HASH = 'd05b20cac24da8fe9ec81141733b44f57fb4a39b29f868c35e0faa0bfb26535d';
 const RULE_IDS: PlannerReviewRuleId[] = ['RV-F', 'RV-T', 'RV-C', 'RV-A', 'RV-G'];
 const SHOT_FIELDS = ['id', 'duration_ms', 'visual', 'camera', 'audio', 'depends_on'] as const;
@@ -139,6 +140,8 @@ export async function plannerContractDigest(value: unknown): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
+const revisionReader = new PlannerRevisionCycleReader({ invalid, binding: readBinding, report: readReport, repair: expectedRepair,
+  plan: readPlannerPlan, json: pythonContractJson, digest: plannerContractDigest });
 export function readPlannerSource(value: unknown): PlannerSource {
   const d = object(value), p = object(d.production);
   if (!id(d.brief_id) || !positive(d.brief_revision) || !positive(d.source_version) || !hash(d.source_hash) || !hash(d.snapshot_hash) || !text(d.title) || !text(d.frozen_at) ||
@@ -164,6 +167,9 @@ export function readPlannerSummary(value: unknown): PlannerSummary {
   const collaborative = d.mode === 'offline_test' && PLANNER_REVIEW_SCENARIOS.includes(d.scenario as PlannerReviewScenario);
   if (collaborative) summary.collaboration = readCollaboration(d.collaboration, summary);
   else if ('collaboration' in d) return invalid();
+  const revision = d.mode === 'offline_test' && PLANNER_REVISION_SCENARIOS.some(scenario => scenario === d.scenario);
+  if (revision) summary.revision_cycle = revisionReader.summary(d.revision_cycle, summary);
+  else if ('revision_cycle' in d) return invalid();
   return summary;
 }
 export function readPlannerPlan(value: unknown, snapshot: string): PlannerPlan {
@@ -192,10 +198,12 @@ export function readPlannerDetail(value: unknown): PlannerDetail {
   const d = object(value), summary = readPlannerSummary(d), limits = object(d.limits);
   if (!key(d.client_request_key) || limits.max_steps !== 6 || limits.max_repairs !== 2 || limits.max_output_bytes !== 65536 || limits.max_context_bytes !== 1048576 || !Array.isArray(d.plan_versions)) return invalid();
   const versions = d.plan_versions.map(v => { const r = object(v); if (!positive(r.version) || !hash(r.plan_hash) || !text(r.created_at)) return invalid(); return { version: r.version, plan_hash: r.plan_hash, created_at: r.created_at }; });
-  const detail: PlannerDetail = { ...summary, collaboration: undefined, client_request_key: d.client_request_key, limits: { max_steps: 6, max_repairs: 2, max_output_bytes: 65536, max_context_bytes: 1048576 },
+  const detail: PlannerDetail = { ...summary, collaboration: undefined, revision_cycle: undefined, client_request_key: d.client_request_key, limits: { max_steps: 6, max_repairs: 2, max_output_bytes: 65536, max_context_bytes: 1048576 },
     plan: d.plan === null ? null : readPlannerPlan(d.plan, summary.source.snapshot_hash), plan_versions: versions };
   if (summary.collaboration) detail.collaboration = readCollaborationDetail(d.collaboration, summary.collaboration, detail);
   else delete detail.collaboration;
+  if (summary.revision_cycle) detail.revision_cycle = revisionReader.detail(d.revision_cycle, summary.revision_cycle, detail);
+  else delete detail.revision_cycle;
   return detail;
 }
 async function checkedDetail(value: unknown): Promise<PlannerDetail> {
@@ -203,6 +211,7 @@ async function checkedDetail(value: unknown): Promise<PlannerDetail> {
   // These client checks supplement server-owned source, permission and binding checks.
   if (c?.binding && (!task.plan || await plannerContractDigest(task.plan) !== c.binding.plan_hash)) return invalid();
   if (c?.report && await plannerContractDigest(c.report) !== c.report_hash) return invalid();
+  await revisionReader.verify(task);
   return task;
 }
 async function write(data: Record<string, unknown>): Promise<PlannerWrite> {
