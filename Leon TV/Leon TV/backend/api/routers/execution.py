@@ -12,7 +12,6 @@ from starlette.routing import Mount
 from api.routers.planner import get_planner_runtime
 from core.creator.store import CreatorError
 from core.execution.policy import ExecutionAction, GrantInput, QuoteInput, RevokeInput
-from core.execution.runtime import ExecutionRuntime
 
 
 class SafeExecutionRoute(APIRoute):
@@ -50,7 +49,8 @@ def get_execution_runtime():
     global _runtime
     with _lock:
         if _runtime is None:
-            _runtime = ExecutionRuntime(FilePath(__file__).resolve().parents[2] / "harness_data" / "planner_execution", get_planner_runtime())
+            from core.execution.bootstrap import build_execution_runtime
+            _runtime = build_execution_runtime(FilePath(__file__).resolve().parents[2] / "harness_data" / "planner_execution", get_planner_runtime())
         return _runtime
 
 
@@ -78,11 +78,19 @@ def private_execution(request: Request, runtime=Depends(get_execution_runtime)):
                 pending.append(route.app)
     for store in [runtime.store, runtime.planner.store, runtime.planner.brief_store]:
         store.check_private(roots)
+    if getattr(runtime, "control", None) is not None:
+        runtime.control.check_private(roots)
+        runtime.start_observer()
     task_id = request.path_params.get("task_id")
     if task_id:
-        with runtime.store.transaction() as payload:
-            exists = task_id in payload["tasks"]
+        if getattr(runtime, "operator_observe_only", False):
+            exists = task_id in runtime.store.read_only()["tasks"]
+        else:
+            with runtime.store.transaction() as payload:
+                exists = task_id in payload["tasks"]
         if not exists:
+            if getattr(runtime, "operator_observe_only", False):
+                raise CreatorError("NOT_FOUND", "Execution record not found", 404)
             runtime.base(task_id)
     return runtime
 
@@ -107,6 +115,8 @@ async def private_inspection(request: Request, runtime=Depends(get_execution_run
                 pending.append(route.app)
     for store in [runtime.store, runtime.planner.store, runtime.planner.brief_store]:
         store.check_private(roots)
+    if getattr(runtime, "control", None) is not None:
+        runtime.control.check_private(roots)
     return runtime
 
 

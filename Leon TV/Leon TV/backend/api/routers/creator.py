@@ -11,7 +11,7 @@ from fastapi.routing import APIRoute
 from starlette.routing import Mount
 
 from api.schemas.creator import CreateBrief, UpdateBrief
-from core.creator.store import CreatorBriefStore, CreatorError
+from core.creator.store import CreatorError
 
 
 class SafeCreatorRoute(APIRoute):
@@ -54,7 +54,8 @@ def get_brief_store():
     global _store
     with _store_lock:
         if _store is None:
-            _store = CreatorBriefStore(FilePath(__file__).resolve().parents[2] / "harness_data" / "creator_briefs")
+            from core.execution.bootstrap import build_brief_store
+            _store = build_brief_store(FilePath(__file__).resolve().parents[2] / "harness_data" / "creator_briefs")
         return _store
 
 
@@ -73,6 +74,8 @@ def private_store(request: Request, store=Depends(get_brief_store)):
                     static_roots.append(directory)
                 pending.append(route.app)
     store.check_private(static_roots)
+    if getattr(store, "operator_control", None) is not None:
+        store.operator_control.check_private(static_roots)
     return store
 
 

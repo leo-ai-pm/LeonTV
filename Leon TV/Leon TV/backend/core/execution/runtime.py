@@ -525,7 +525,7 @@ class ExecutionRuntime:
         self.bump(task, "empirical_receipt_processed", operation["tool_result"].get("code"), operation["id"])
         return True
 
-    def observe_fee(self, task_id, operation_id, evidence, *, expected_execution_revision=None):
+    def observe_fee(self, task_id, operation_id, evidence, *, expected_execution_revision=None, auto_continue=True):
         """Server-only evidence ingestion. There is deliberately no HTTP route."""
         from core.execution.empirical import guarded, observation
         lock = self.store.execution_lock(task_id)
@@ -566,7 +566,7 @@ class ExecutionRuntime:
                 self.bump(task, "empirical_platform_fee_observed", operation_id=operation_id)
                 if value["fee_status"] == "overrun" or self.account_risk_overrun(payload, task):
                     task["status"], task["reason"] = "blocked", "EMPIRICAL_RISK_OVERRUN"
-                elif not paused and self.empirical_resumable(payload, task, operation) and task["active_grant_id"] == operation["grant_id"] and self.grant_status(payload["grants"][operation["grant_id"]]) == "active":
+                elif auto_continue is True and not paused and self.empirical_resumable(payload, task, operation) and task["active_grant_id"] == operation["grant_id"] and self.grant_status(payload["grants"][operation["grant_id"]]) == "active":
                     task["status"], task["reason"] = "running", None
                     self.process_empirical_receipt(payload, task, operation, policy)
                     if task["status"] == "running":

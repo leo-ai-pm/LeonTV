@@ -13,7 +13,6 @@ from starlette.routing import Mount
 from api.routers.creator import get_brief_store
 from api.schemas.planner import CreateOfflineTask, CreateTask, TaskAction
 from core.creator.store import CreatorError
-from core.planner.runtime import PlannerRuntime
 from core.planner.store import PlannerError
 
 
@@ -59,7 +58,8 @@ def get_planner_runtime():
     global _runtime
     with _lock:
         if _runtime is None:
-            _runtime = PlannerRuntime(FilePath(__file__).resolve().parents[2] / "harness_data" / "brief_planner", get_brief_store())
+            from core.execution.bootstrap import build_planner
+            _runtime = build_planner(FilePath(__file__).resolve().parents[2] / "harness_data" / "brief_planner", get_brief_store())
         return _runtime
 
 
@@ -87,6 +87,8 @@ def private_runtime(request: Request, runtime=Depends(get_planner_runtime)):
                 pending.append(route.app)
     runtime.store.check_private(roots)
     runtime.brief_store.check_private(roots)
+    if getattr(runtime, "operator_control", None) is not None:
+        runtime.operator_control.check_private(roots)
     return runtime
 
 
