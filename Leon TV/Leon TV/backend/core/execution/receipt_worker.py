@@ -28,10 +28,15 @@ from core.execution.transport import ResponseUnconfirmed, unconfirmed_code
 def collect(store, claim, job):
     import httpx
 
+    method, body_limit = "POST", MAX_BODY
     if "kind" not in job:
         operation, policy = job["operation"], job["policy"]
         binding = binding_for(operation)
         endpoint, wire, validation_only = policy["endpoint"], operation["wire"], policy["validation_only"]
+    elif job["kind"] == "controlled_image_http_v1":
+        from core.execution.image_capture import worker_request
+
+        binding, endpoint, wire, validation_only, method, body_limit = worker_request(job, claim)
     else:
         from experiments.planner_live.empirical_capture import worker_request
 
@@ -63,14 +68,14 @@ def collect(store, claim, job):
     try:
         client = httpx.Client(transport=transport, timeout=max(0.001, (cutoff - now()).total_seconds()), follow_redirects=False,
             trust_env=False, event_hooks={"request": [submit_boundary]})
-        with client.stream("POST", endpoint, content=wire.encode("utf-8"),
+        with client.stream(method, endpoint, content=wire.encode("utf-8") if method == "POST" else None,
             headers={"Content-Type": "application/json", "Authorization": "Bearer " + job["api_key"], "X-Client-Operation-Id": binding["operation_id"]}) as response:
             data = bytearray()
             for chunk in response.iter_bytes():
                 if now() >= cutoff:
                     raise ResponseUnconfirmed("OVERALL_DEADLINE")
                 data.extend(chunk)
-                if len(data) > MAX_BODY:
+                if len(data) > body_limit:
                     raise ResponseUnconfirmed("RECEIPT_TOO_LARGE")
             raw = {"http_status": response.status_code,
                 "headers": {key.lower(): value for key, value in response.headers.items() if key.lower() == "x-request-id"},
