@@ -19,7 +19,14 @@ from core.creator.store import (
     valid_content,
 )
 from core.harness.store import lock_file, unlock_file
-from core.planner.protocol import LIMITS, SCENARIOS, STATUSES, checked_plan, parse_json
+from core.planner.protocol import (
+    LIMITS,
+    REVIEW_SCENARIOS,
+    SCENARIOS,
+    STATUSES,
+    checked_plan,
+    parse_json,
+)
 
 
 class PlannerError(CreatorError):
@@ -72,14 +79,17 @@ def validate_state(state):
             require(type(frame["revision"]) is int and frame["revision"] == number and datetime.fromisoformat(frame["saved_at"]).tzinfo is not None)
             require(frame["previous_hash"] == (previous["hash"] if previous else None) and frame["hash"] == frame_hash(document, frame))
             payload = frame["payload"]
-            require(set(payload) == PAYLOAD_FIELDS and payload["status"] in STATUSES)
+            collaboration = request["mode"] == "offline_test" and request["scenario"] in REVIEW_SCENARIOS
+            require(set(payload) == PAYLOAD_FIELDS | ({"collaboration"} if collaboration else set()) and payload["status"] in STATUSES)
             require(type(payload["step_count"]) is int and 0 <= payload["step_count"] <= LIMITS["max_steps"])
             require(type(payload["repair_count"]) is int and 0 <= payload["repair_count"] <= LIMITS["max_repairs"])
             require(type(payload["read_source"]) is bool and isinstance(payload["messages"], list) and isinstance(payload["operations"], list))
             require(len(payload["operations"]) == payload["step_count"])
             ids = []
             for step, operation in enumerate(payload["operations"], 1):
-                require(set(operation) == {"id", "step", "context", "context_hash", "status", "response", "error"})
+                require(set(operation) == {"id", "step", "context", "context_hash", "status", "response", "error"} | ({"role"} if collaboration else set()))
+                if collaboration:
+                    require(operation["role"] in {"planner", "reviewer"})
                 require(bool(ID_RE.fullmatch(operation["id"])) and type(operation["step"]) is int and operation["step"] == step)
                 require(operation["context_hash"] == digest(operation["context"]) and operation["status"] in {"intent", "received", "processed", "unknown"})
                 require(operation["response"] is None or isinstance(operation["response"], str) and len(operation["response"].encode("utf-8")) <= LIMITS["max_output_bytes"])
@@ -91,6 +101,10 @@ def validate_state(state):
                 require(set(plan) == {"version", "plan", "plan_hash", "created_at"} and type(plan["version"]) is int and plan["version"] == version)
                 checked, error = checked_plan(plan["plan"], source["snapshot_hash"])
                 require(error is None and plan["plan_hash"] == digest(checked))
+            if collaboration:
+                from core.planner.collaboration import validate
+
+                validate(document, payload, previous["payload"] if previous else None)
             require(isinstance(payload["events"], list) and len(payload["events"]) == number)
             for sequence, event in enumerate(payload["events"], 1):
                 require(set(event) == {"sequence", "type", "task_revision", "created_at", "step", "code"} and event["sequence"] == sequence and event["task_revision"] == sequence)

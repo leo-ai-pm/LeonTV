@@ -16,7 +16,7 @@ class CreateTask(Strict):
 
 
 class CreateOfflineTask(CreateTask):
-    scenario: Literal["success", "repair", "invalid_tool", "step_limit", "response_unknown"] = "success"
+    scenario: Literal["success", "repair", "invalid_tool", "step_limit", "response_unknown", "review_accepted", "review_rejected", "review_unknown", "review_response_unknown", "review_invalid"] = "success"
 
 
 class TaskAction(Strict):

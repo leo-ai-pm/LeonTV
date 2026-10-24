@@ -1,4 +1,4 @@
-import { BriefPlannerError, briefPlannerApi, PLANNER_SCENARIOS } from './briefPlannerApi';
+import { BriefPlannerError, briefPlannerApi, PLANNER_SCENARIOS, readPlannerSummary } from './briefPlannerApi';
 import type { PlannerAction, PlannerBriefGate, PlannerDetail, PlannerEvent, PlannerFrozenBrief, PlannerIntent, PlannerMode, PlannerOfflineCreate, PlannerScenario, PlannerSummary } from './briefPlannerTypes';
 
 interface StoragePort { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
@@ -82,8 +82,7 @@ export class BriefPlannerController {
     const previous = this.state.tasks.find(t => t.id === task.id);
     if (previous && previous.revision > task.revision) return;
     // Adapter projection prevents accidental retention of plan/body in summary list.
-    const { client_request_key, limits, plan, plan_versions, ...summary } = task;
-    void [client_request_key, limits, plan, plan_versions];
+    const summary = readPlannerSummary(task);
     this.listEpoch++;
     this.set({ listLoading: false, tasks: [summary, ...this.state.tasks.filter(t => t.id !== task.id)] });
   }
@@ -113,9 +112,12 @@ export class BriefPlannerController {
     try {
       const current = await briefPlannerApi.get(task.id);
       if (current.id !== task.id) throw new Error('binding');
+      // Creation and same-key recovery can select another task without an open().
+      // A refresh only updates its original selection, including after async hashes.
+      if (ticket !== this.epoch || this.state.task?.id !== task.id) return;
       this.accept(current, ticket);
       if (ticket === this.epoch) await this.loadEvents();
-    } catch (error) { if (ticket === this.epoch) this.report(error); }
+    } catch (error) { if (ticket === this.epoch && this.state.task?.id === task.id) this.report(error); }
     finally { if (ticket === this.epoch) this.set({ refreshing: false }); }
   }
   async loadEvents() {
