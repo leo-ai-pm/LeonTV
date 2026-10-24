@@ -16,6 +16,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 独立实验层 | 确定性 Harness PoC；受控真实 API 试制及预算/回执保护 | 正式产品入口已经具备自动规划、独立审查、自动修复 |
 | 服务端执行控制 | D27独立配置、单任务准入、原引擎装配、平台导出收件箱及幂等恢复；默认关闭，旧范围只读 | 操作员配置UI、自动平台账单拉取、多供应商核费 |
 | 素材交接层 | D28原journal只读证据桥、显式1–12镜素材合同、完整图片集修订合同及图片交付身份检查 | 已发新素材请求、已集成VLM、文本grant包含媒体权限 |
+| 受控图片工具组件 | D29独立媒体描述符、原collector单次POST／GET、原始回执／文件技术校验和精确费用候选；默认关闭 | 已完成媒体金融写账、全局费用claim、自动素材调度或真实图片新调用 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
 ## 现役创作链路
@@ -54,6 +55,8 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 自由画布由用户连接并运行节点。节点与连线形成创作关系，前端负责展示运行状态和结果；完整 DAG 的自动调度与自主规划尚未实现。
 
 ## 模型与工具
+
+D29新增 `image_policy/image_capture/image_receipts/image_fees`，以明确的媒体scope复用原ReceiptStore和detached worker；worker仅为新kind选择固定POST／GET，旧文本路径仍为原POST。组件不另建调度和金融账本；独立verifier须核对实际媒体预留、grant、原始提交与引用字节，默认未注册。费用仅按生成请求ID精确产生候选，未做全局claim／结算或释放风险；迟到证据保留事实，不恢复执行。[合同](./CONTROLLED-IMAGE-TOOLS-API.md) · [验收](./CONTROLLED-IMAGE-TOOLS-VALIDATION.md)。
 
 D28在原执行API增加 `GET .../execution/asset-handoff`，从已验证的原始调用、已匹配费用及确切接受报告派生素材准备，不创建第二套执行引擎。v1首审与v2完整复核各自重建，显式 `product-assets-v1` 支持1–12镜并保留旧D19。原视觉合同仅在新profile显式选择新校验器，图片集变更后旧审阅失效。土豆图片客户端以交付SHA／大小校验缓存，过期链接只查询原task恢复。它们不授予新付费权限；媒体工具、异步图片费用和真实视觉执行仍待接入。[接口](./PRODUCT-ASSET-HANDOFF-API.md) · [验收](./PRODUCT-ASSET-HANDOFF-VALIDATION.md)。
 
