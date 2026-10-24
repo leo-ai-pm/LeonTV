@@ -99,7 +99,7 @@ class TudouClient:
                                 "error_code": (receipt.get("error") or {}).get("code")})
 
     @staticmethod
-    def _video_file_digest(path: Path) -> tuple[str, int]:
+    def _media_file_digest(path: Path) -> tuple[str, int]:
         digest, size = hashlib.sha256(), 0
         with path.open("rb") as source:
             for chunk in iter(lambda: source.read(1024 * 1024), b""):
@@ -145,7 +145,7 @@ class TudouClient:
             if (receipt.get("downloaded") and isinstance(expected_digest, str) and len(expected_digest) == 64
                     and type(expected_size) is int and expected_size > 0 and path.is_file()):
                 try:
-                    delivered = self._video_file_digest(path) == (expected_digest, expected_size)
+                    delivered = self._media_file_digest(path) == (expected_digest, expected_size)
                 except OSError:
                     pass
             if not delivered:
@@ -161,7 +161,7 @@ class TudouClient:
                     self._save_receipt(receipt_path, receipt)
                     url = self._first_url(result, "video")
                     self._download(url, path)
-                digest, size = self._video_file_digest(path)
+                digest, size = self._media_file_digest(path)
                 if not size:
                     raise RuntimeError("土豆 API 返回空视频文件。")
                 receipt.update(downloaded=True, delivery_sha256=digest, delivery_size_bytes=size)
@@ -285,28 +285,75 @@ class TudouClient:
         finally:
             temporary.unlink(missing_ok=True)
 
+    def _refresh_completed_image_result(self, task_id: str) -> dict:
+        """Read the same accepted image task once; never poll or submit a replacement."""
+        response = requests.get(f"{self.base_url}/v1/tasks/{task_id}", headers=self.headers,
+                                timeout=60, proxies=Config.requests_proxies("tudou"))
+        response.raise_for_status()
+        payload = response.json()
+        if (not isinstance(payload, dict) or isinstance(payload.get("code"), bool)
+                or payload.get("code") not in (None, 0, 200)):
+            raise RuntimeError("土豆 API 未返回原图片任务的成功查询回执。")
+        item = payload.get("data") or payload
+        if not isinstance(item, dict):
+            raise RuntimeError("土豆 API 未返回原图片任务的有效查询回执。")
+        identifiers = [item[key] for key in ("id", "task_id") if item.get(key) is not None]
+        if not identifiers or any(not isinstance(value, str) or value != task_id for value in identifiers):
+            raise RuntimeError("土豆 API 查询回执与原图片任务编号不一致。")
+        result = item.get("result")
+        if str(item.get("status") or "").lower() not in {"completed", "succeeded"} or not isinstance(result, dict):
+            raise RuntimeError("土豆 API 查询未确认原图片任务的完成结果。")
+        if not urlparse(self._first_url(result, "image")).netloc:
+            raise RuntimeError("土豆 API 查询未返回有效的图片链接。")
+        return result
+
     def _complete_image(self, receipt_path: Path, receipt: dict) -> str:
         task_id = receipt["task_id"]
         completed = receipt.get("status") == "completed" and isinstance(receipt.get("result"), dict)
+        cached_completed = completed
         try:
             result = receipt["result"] if completed else self._poll(task_id)
             completed = True
             receipt.update(status="completed", result=result, error=None)
             self._save_receipt(receipt_path, receipt)
             url = self._first_url(result, "image")
-            entry = result["images"][0]
             path = Path(receipt["save_path"])
-            if not (receipt.get("downloaded") and path.is_file() and path.stat().st_size):
-                self._download(url, path)
-                receipt["downloaded"] = True
+            delivered = False
+            expected_digest, expected_size = receipt.get("delivery_sha256"), receipt.get("delivery_size_bytes")
+            if (receipt.get("downloaded") and isinstance(expected_digest, str) and len(expected_digest) == 64
+                    and type(expected_size) is int and expected_size > 0 and path.is_file()):
+                try:
+                    delivered = self._media_file_digest(path) == (expected_digest, expected_size)
+                except OSError:
+                    pass
+            if not delivered:
+                try:
+                    self._download(url, path)
+                except requests.HTTPError as exc:
+                    response = exc.response
+                    if not cached_completed or response is None or response.status_code not in {403, 404, 410}:
+                        raise
+                    refreshed_result = self._refresh_completed_image_result(task_id)
+                    receipt.setdefault("previous_completed_result", result)
+                    receipt["result"] = result = refreshed_result
+                    self._save_receipt(receipt_path, receipt)
+                    url = self._first_url(result, "image")
+                    self._download(url, path)
+                digest, size = self._media_file_digest(path)
+                if not size:
+                    raise RuntimeError("土豆 API 返回空图片文件。")
+                receipt.update(downloaded=True, delivery_sha256=digest, delivery_size_bytes=size)
                 self._save_receipt(receipt_path, receipt)
+            entry = result["images"][0]
             self._save_image_source(Path(f"{path}.tudou-source.json"),
                                     {"url": url, "expires_at": entry.get("expires_at")})
             receipt["source_saved"] = True
             self._save_receipt(receipt_path, receipt)
             return str(path)
         except Exception as exc:
-            if isinstance(exc, TimeoutError) and not completed:
+            if completed:
+                error = TudouTaskError(str(exc), task_id, "delivery_failed", "completed")
+            elif isinstance(exc, TimeoutError):
                 error = TudouPollTimeout(task_id)
             elif isinstance(exc, TudouTaskError):
                 error = exc

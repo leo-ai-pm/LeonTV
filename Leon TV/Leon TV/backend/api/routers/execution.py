@@ -125,6 +125,12 @@ def inspect_receipts(task_id: TaskId, operation_id: TaskId, runtime=Depends(priv
     return runtime.inspect_receipts(task_id, operation_id)
 
 
+@router.get("/tasks/{task_id}/execution/asset-handoff")
+def asset_handoff(task_id: TaskId, runtime=Depends(private_inspection)):
+    from core.execution.asset_handoff import build_handoff
+    return build_handoff(runtime, task_id)
+
+
 @router.get("/execution/policy")
 def policy(runtime=Depends(private_execution)):
     return runtime.policy_view()

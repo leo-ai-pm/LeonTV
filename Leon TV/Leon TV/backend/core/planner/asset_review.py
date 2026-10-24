@@ -66,8 +66,15 @@ def build_visual_input(asset_payload, manifest, images, binding):
         keys(binding, {"review_id", "manifest_hash"})
         require(type(binding["review_id"]) is str and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}", binding["review_id"]) is not None)
         sha(binding["manifest_hash"])
-        checked_asset_payload(asset_payload)
-        jobs = image_jobs(asset_payload, manifest, expected_manifest_hash=binding["manifest_hash"])
+        # Explicit new profile; legacy D19 schema and output remain unchanged.
+        if type(asset_payload) is dict and asset_payload.get("contract_version") == "product-assets-v1":
+            from core.planner.product_assets import checked_asset_payload as checked_product
+            from core.planner.product_assets import image_jobs as product_jobs
+            checked_product(asset_payload)
+            jobs = product_jobs(asset_payload, manifest, expected_manifest_hash=binding["manifest_hash"])
+        else:
+            checked_asset_payload(asset_payload)
+            jobs = image_jobs(asset_payload, manifest, expected_manifest_hash=binding["manifest_hash"])
         images = imageset(images, [job["shot_id"] for job in jobs])
         parent = manifest["binding"]
         frozen = {"review_id": binding["review_id"], **{name: parent[name] for name in ("source_snapshot_hash", "plan_version", "plan_hash")},
