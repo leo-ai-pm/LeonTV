@@ -1,5 +1,6 @@
 # 素材角色与分镜首帧合同
 
+后续：[D28产品素材交接](./PRODUCT-ASSET-HANDOFF-API.md)新增显式多镜profile与正式只读入口；本页D19／D20历史合同语义保持。
 这一层将已通过独立文字审阅的分镜交给素材角色，产出角色／场景定型和逐镜首帧输入。它是纯 Python 合同，不新增 HTTP 接口、供应商授权或后台自动生成入口。真实执行结果另见 [验收记录](./ASSET-HANDOFF-VALIDATION.md)。
 
 `core/planner/assets.py` 提供：
