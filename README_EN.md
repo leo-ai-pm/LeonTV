@@ -97,7 +97,7 @@ The creative execution layer remains a fixed stage state machine. The Harness ru
 | Creator briefs and draft budgets | Implemented | Default A Screening Room workspace with private persistence and version recovery; autonomous production is not connected |
 | Six-stage workflow, projects and canvas | Implemented | Local application; generation requires provider credentials |
 | Stage-level evaluation and bounded correction | Partial | Implemented in selected character, reference and storyboard paths |
-| Real image and video output | Demonstrated in this trial | Actual outputs above; not certification of every model or parameter combination |
+| Real image and video output | Earlier trial outputs delivered | Earlier videos appear above; D21 failed at the provider channel with no new video, without certifying every model or parameter combination |
 | Product runtime, version gates and recovery | Integrated in test mode | Studio run-validation panel, formal API and durable storage; no real model or paid calls |
 | Planning authorization and cost gates | Validated with synthetic transport | Server quotes, explicit grants, atomic reservations, cumulative limits and receipt reconciliation; local pricing is not a provider bill |
 | Detached receipt capture and read-only inspection | Synthetic fault acceptance passed | Explicit opt-in, durable commit before notification, bounded collection after observer exit and isolated late evidence; inspection cannot resubmit or settle; capture off by default |
@@ -111,7 +111,9 @@ The creative execution layer remains a fixed stage state machine. The Harness ru
 
 [Real planning](./docs/PLANNER-READ-CONTEXT-VALIDATION.md) persisted a three-shot, 15-second, 9:16 storyboard. An [independent text Reviewer](./docs/PLANNER-REVIEW-VALIDATION.md) accepted all five criteria for that exact v1. Source, versions, receipts and platform charges are checked separately from image and finished-video acceptance.
 
-The [asset-role trial](./docs/ASSET-HANDOFF-VALIDATION.md) produced real frames. [Independent visual review and local repair](./docs/ASSET-VISUAL-REVIEW-VALIDATION.md) corrected props, framing and close-up composition; the final three-frame set passed. Three revisions incurred CNY 0.12 in observed platform fees; 1174 tests and 5 subtests passed. Visual inspection used an independent Codex Agent; a vision model is not yet integrated into the product runtime. Next are two 15-second video-model samples. Product integration, human acceptance and the [full autonomous collaboration goal](./docs/AUTONOMOUS-COLLABORATION-GOAL.md) remain in development.
+The [asset-role trial](./docs/ASSET-HANDOFF-VALIDATION.md) produced real frames. [D20 independent visual review and local repair](./docs/ASSET-VISUAL-REVIEW-VALIDATION.md) corrected props, framing and close-up composition; the final three-frame set passed. Three revisions incurred CNY 0.12 in observed platform fees; 1174 tests and 5 subtests passed. Visual inspection used an independent Codex Agent; a vision model is not yet integrated into the product runtime.
+
+[The D21 video trial](./docs/VIDEO-GENERATION-VALIDATION.md) submitted one 15-second request to each of MiniMax H3 and Seedance 2.5 using the same accepted frames and storyboard. Both failed because the provider's upstream channels were unavailable; no new video was delivered. Corresponding error logs show CNY 0 as a fee observation, with risk reservations retained. Retries have stopped pending restored channels or a selected alternative. The video-brief contract is implemented; product video scheduling, VLM, automatic fee reconciliation, human acceptance and [full autonomous collaboration](./docs/AUTONOMOUS-COLLABORATION-GOAL.md) remain pending.
 
 ## Quick start
 

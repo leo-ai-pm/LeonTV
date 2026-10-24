@@ -105,7 +105,9 @@ D19增加 `core/planner/assets.py` 的严格素材清单与首帧文本任务；
 
 D20新增 `core/planner/asset_review.py` 的完整图片集绑定、严格三态审阅和局部图片版本合同。受控实际首帧经过独立 Codex 看图、三次指定修订与全组合复核后通过；来源、分镜和清单仍为v1。实际执行由统筹冻结的私有调用器控制，纯合同随后回放实际版本链；未新增产品视觉模型、调度或HTTP入口。平台关联恢复的证据强度与原始POST回执分开记录。[合同](./ASSET-VISUAL-REVIEW-API.md) · [验收](./ASSET-VISUAL-REVIEW-VALIDATION.md)。
 
-D21准备层增加 `core/planner/video_brief.py`：从确切 accepted 图片集及原分镜编译模型共用输入，绑定图片版本、连续时码与独立冻结摘要。新纯合同与隔离检查通过，尚未派发新的真实视频；供应商选择、预算／累计调用上限、回执及核费仍由执行者负责。[交接合同](./VIDEO-BRIEF-API.md) · [执行准备](./VIDEO-GENERATION-VALIDATION.md)。
+D21准备层增加 `core/planner/video_brief.py`：从确切 accepted 图片集及原分镜编译模型共用输入，绑定图片版本1/3/2、原4/5/6秒连续时码、15秒/9:16及独立冻结摘要。232个公开文件的冻结清单未变，既有全量1201项测试及5个子测试通过；本次未改代码，新增私有兼容入口的5项合成检查单独通过，不等于产品调度或核费集成。[交接合同](./VIDEO-BRIEF-API.md)。
+
+2026-10-24经用户批准重建浏览器、恢复土豆登录并核对720p规格/价格及三张参考图后，D21向MiniMax H3与Seedance 2.5各发起1次真实POST。两者均为HTTP502 `fail_to_fetch_task`，正文含上游failed、HTTP503 `model_not_found` / `No available channel`，没有可用本平台任务编号、新视频/音频或媒体/人工验收。每次本地POST对应3条平台错误记录，仍是共2次本地提交；对应记录均显示¥0，只是平台费用观察，不是正式账单或计费硬界。原39操作/4条unknown保持，累计41操作、15次续试提交；继承原100元预算，累计风险69.37元保留，不是消费，也不释放新失败风险。H3累计3/3、Seedance 2/3，本轮2次范围已耗尽。当前由供应商通道故障阻断，须恢复原通道或由用户选择可用替代渠道/模型，再冻结新范围；不自动重试或切换模型。正式产品视频调度、VLM和核费集成仍待完成，production/default capture继续关闭，自主协作仍未整体验收。[D21实际结果与边界](./VIDEO-GENERATION-VALIDATION.md)。
 
 ## 产品内 Harness 运行基础
 
