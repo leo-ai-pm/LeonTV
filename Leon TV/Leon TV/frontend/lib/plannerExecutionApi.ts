@@ -1,5 +1,6 @@
 import { readPlannerPlan, readPlannerSource } from './briefPlannerApi';
 import { EXECUTION_SCOPE, type ExecutionActionRequest, type ExecutionChatOutputParameter, type ExecutionDetail, type ExecutionEvent, type ExecutionGrant, type ExecutionGrantRequest, type ExecutionLedger, type ExecutionOperation, type ExecutionPolicy, type ExecutionPolicyResult, type ExecutionQuote, type ExecutionQuoteRequest, type ExecutionRevokeRequest, type ExecutionResponseStatus, type ExecutionWireApi, type ExecutionWrite } from './plannerExecutionTypes';
+import { ExecutionRoleReader } from './plannerExecutionRoles';
 
 export class PlannerExecutionError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -15,6 +16,7 @@ const nullableMoney = (v: unknown): v is string | null => v === null || money(v)
 const nullableCount = (v: unknown): v is number | null => v === null || count(v);
 function invalid(): never { throw new PlannerExecutionError(0, 'INVALID_RESPONSE', '规划记录响应格式不符合要求，原请求与未决费用保持，请重新查询。'); }
 function object(v: unknown): Record<string, unknown> { if (!v || typeof v !== 'object' || Array.isArray(v)) return invalid(); return v as Record<string, unknown>; }
+const roles = new ExecutionRoleReader(invalid);
 function wireApi(value: unknown): ExecutionWireApi {
   // D10's display-only legacy default must not backfill or rehash any saved object.
   if (value === undefined) return 'chat_completions';
@@ -44,7 +46,7 @@ export function readExecutionPolicy(value: unknown): ExecutionPolicy {
   try { endpoint = new URL(p.endpoint); } catch { return invalid(); }
   if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
     !endpoint.pathname.endsWith(wire === 'responses' ? '/responses' : '/chat/completions')) return invalid();
-  return { wire_api: wire, ...output, id: p.id, version: p.version, policy_hash: p.policy_hash, provider: 'openai_compatible', model: p.model, endpoint: p.endpoint, currency: 'CNY',
+  return { ...roles.policy(p), wire_api: wire, ...output, id: p.id, version: p.version, policy_hash: p.policy_hash, provider: 'openai_compatible', model: p.model, endpoint: p.endpoint, currency: 'CNY',
     input_cny_per_million: p.input_cny_per_million, output_cny_per_million: p.output_cny_per_million, max_input_tokens: p.max_input_tokens,
     max_output_tokens: p.max_output_tokens, max_input_bytes: p.max_input_bytes, max_output_bytes: p.max_output_bytes, request_deadline_seconds: p.request_deadline_seconds,
     max_calls: p.max_calls, task_limit_cny: p.task_limit_cny, account_limit_cny: p.account_limit_cny, account_max_calls: p.account_max_calls,
@@ -54,7 +56,8 @@ export function readExecutionQuote(value: unknown): ExecutionQuote {
   const q = object(value);
   if (!id(q.id) || !id(q.task_id) || !positive(q.planner_task_revision) || !hash(q.snapshot_hash) || !money(q.per_call_hold_cny) || !money(q.total_limit_cny) ||
     !positive(q.max_calls) || !text(q.expires_at) || !hash(q.disclosure_hash) || !text(q.created_at) || !['valid','expired','policy_stale'].includes(String(q.status))) return invalid();
-  return { id: q.id, task_id: q.task_id, planner_task_revision: q.planner_task_revision, snapshot_hash: q.snapshot_hash, policy: readExecutionPolicy(q.policy),
+  const policy = readExecutionPolicy(q.policy);
+  return { ...roles.quote(q, policy), id: q.id, task_id: q.task_id, planner_task_revision: q.planner_task_revision, snapshot_hash: q.snapshot_hash, policy,
     per_call_hold_cny: q.per_call_hold_cny, total_limit_cny: q.total_limit_cny, max_calls: q.max_calls, expires_at: q.expires_at,
     disclosure_hash: q.disclosure_hash, created_at: q.created_at, status: q.status as ExecutionQuote['status'] };
 }
@@ -62,7 +65,7 @@ export function readExecutionGrant(value: unknown): ExecutionGrant {
   const g = object(value);
   if (!id(g.id) || !id(g.task_id) || !id(g.quote_id) || !hash(g.snapshot_hash) || !hash(g.policy_hash) || !hash(g.disclosure_hash) || g.scope !== EXECUTION_SCOPE ||
     !['active','expired','revoked','policy_stale'].includes(String(g.status)) || !money(g.total_limit_cny) || !positive(g.max_calls) || !text(g.expires_at) || !text(g.created_at) || !nullableText(g.revoked_at)) return invalid();
-  return { id: g.id, task_id: g.task_id, quote_id: g.quote_id, snapshot_hash: g.snapshot_hash, policy_hash: g.policy_hash, disclosure_hash: g.disclosure_hash, scope: EXECUTION_SCOPE,
+  return { ...roles.grant(g), id: g.id, task_id: g.task_id, quote_id: g.quote_id, snapshot_hash: g.snapshot_hash, policy_hash: g.policy_hash, disclosure_hash: g.disclosure_hash, scope: EXECUTION_SCOPE,
     status: g.status as ExecutionGrant['status'], total_limit_cny: g.total_limit_cny, max_calls: g.max_calls, expires_at: g.expires_at, created_at: g.created_at, revoked_at: g.revoked_at };
 }
 function readLedger(value: unknown): ExecutionLedger {
@@ -86,7 +89,7 @@ function readOperation(value: unknown): ExecutionOperation {
     !nullableCount(cached) || !nullableCount(reasoning) ||
     wire === 'chat_completions' && responseStatus !== null || wire === 'responses' && o.finish_reason !== null ||
     cached !== null && (o.input_tokens === null || cached > o.input_tokens) || reasoning !== null && (o.output_tokens === null || reasoning > o.output_tokens)) return invalid();
-  return { wire_api: wire, ...output, response_status: responseStatus as ExecutionResponseStatus | null, cached_input_tokens: cached, reasoning_output_tokens: reasoning,
+  return { ...roles.operation(o), wire_api: wire, ...output, response_status: responseStatus as ExecutionResponseStatus | null, cached_input_tokens: cached, reasoning_output_tokens: reasoning,
     id: o.id, step: o.step, status: o.status as ExecutionOperation['status'], grant_id: o.grant_id, quote_id: o.quote_id, policy_hash: o.policy_hash, context_hash: o.context_hash,
     hold_cny: o.hold_cny, locally_accounted_cny: o.locally_accounted_cny, provider_request_id: o.provider_request_id, provider_response_id: o.provider_response_id,
     input_tokens: o.input_tokens, output_tokens: o.output_tokens, finish_reason: o.finish_reason, receipt_status: o.receipt_status as ExecutionOperation['receipt_status'], created_at: o.created_at, received_at: o.received_at };
@@ -99,10 +102,11 @@ export function readExecutionDetail(value: unknown): ExecutionDetail {
     !nullableText(d.created_at) || !nullableText(d.updated_at)) return invalid();
   const source = readPlannerSource(d.source), quotes = d.quotes.map(readExecutionQuote), grants = d.grants.map(readExecutionGrant);
   if (quotes.some(q => q.task_id !== d.task_id || q.snapshot_hash !== source.snapshot_hash) || grants.some(g => g.task_id !== d.task_id || g.snapshot_hash !== source.snapshot_hash)) return invalid();
-  return { task_id: d.task_id, revision: d.revision, environment: d.environment, status: d.status as ExecutionDetail['status'], blocked_reason: d.blocked_reason,
+  const execution: ExecutionDetail = { task_id: d.task_id, revision: d.revision, environment: d.environment, status: d.status as ExecutionDetail['status'], blocked_reason: d.blocked_reason,
     allowed_actions: d.allowed_actions as ExecutionDetail['allowed_actions'], source, policy_available: d.policy_available, active_grant_id: d.active_grant_id,
     quotes, grants, ledger: readLedger(d.ledger), operations: d.operations.map(readOperation), plan: d.plan === null ? null : readPlannerPlan(d.plan, source.snapshot_hash),
     quality_status: 'not_reviewed', created_at: d.created_at, updated_at: d.updated_at };
+  return { ...execution, ...roles.detail(d, execution) };
 }
 async function request(url: string, method = 'GET', body?: unknown) {
   const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 15000);

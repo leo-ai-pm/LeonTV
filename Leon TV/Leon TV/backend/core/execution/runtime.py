@@ -75,6 +75,12 @@ class ExecutionRuntime:
             return "disabled"
         return "synthetic_test" if self.policy and self.policy["validation_only"] else "live"
 
+    def task_environment(self, payload, task):
+        if "environment" in task:
+            return task["environment"]
+        policies = [quote["policy"] for quote in payload["quotes"].values() if quote["task_id"] == task["id"]]
+        return "synthetic_test" if policies and all(policy["validation_only"] is True for policy in policies) else "live"
+
     def policy_view(self):
         with self.store.transaction() as payload:
             reason = self.availability(payload)
@@ -129,6 +135,11 @@ class ExecutionRuntime:
             return reason
         if self.pending(payload, task) is not None:
             return "RESPONSE_UNCONFIRMED"
+        if "role_workflow" in task:
+            from core.execution.roles import gate
+            reason = gate(task)
+            if reason:
+                return reason
         grant = payload["grants"].get(task["active_grant_id"])
         if grant is None:
             return "AUTHORIZATION_REQUIRED"
@@ -195,8 +206,14 @@ class ExecutionRuntime:
                 "locally_accounted_cny": money(op["local_units"]) if op["local_units"] is not None else None,
                 **{key: receipt.get(key) for key in ["provider_request_id", "provider_response_id", "input_tokens", "output_tokens", "finish_reason", "response_status", "cached_input_tokens", "reasoning_output_tokens"]},
                 "receipt_status": "confirmed_local" if op["status"] == "settled" else "received" if op["status"] == "received" else "unconfirmed" if op["status"] == "needs_reconciliation" else "none",
-                "created_at": op["created_at"], "received_at": op["raw"]["received_at"] if op["raw"] else None})
-        return {"task_id": task_id, "revision": task["revision"], "environment": self.environment(), "status": status, "blocked_reason": reason,
+                "created_at": op["created_at"], "received_at": op["raw"]["received_at"] if op["raw"] else None,
+                **({key: op[key] for key in ["role_workflow", "role", "role_call_index", "role_binding_hash"]} if "role_workflow" in op else {})})
+        if "role_workflow" in task:
+            from core.execution.roles import projection
+            role_projection = {"role_workflow": task["role_workflow"], "role_state": projection(task["role_state"])}
+        else:
+            role_projection = {}
+        return {"task_id": task_id, "revision": task["revision"], "environment": self.task_environment(payload, task), "status": status, "blocked_reason": reason,
             "allowed_actions": actions, "source": self.planner.source_summary(task["source"]), "policy_available": self.availability(payload) is None,
             "active_grant_id": task["active_grant_id"], "quotes": [self.quote_view(q) for q in payload["quotes"].values() if q["task_id"] == task_id],
             "grants": [self.grant_view(g) for g in payload["grants"].values() if g["task_id"] == task_id],
@@ -205,7 +222,7 @@ class ExecutionRuntime:
                 "account_held_cny": money(shared["held"]), "account_limit_cny": money(account["limit_units"]), "account_call_count": shared["calls"],
                 "account_max_calls": account["max_calls"], "provider_bill_confirmed": False},
             "operations": operations, "plan": copy.deepcopy(task["plan"]), "quality_status": "not_reviewed",
-            "created_at": task["created_at"], "updated_at": task["updated_at"]}
+            "created_at": task["created_at"], "updated_at": task["updated_at"], **role_projection}
 
     @staticmethod
     def replay(payload, namespace, key, request):
@@ -249,6 +266,9 @@ class ExecutionRuntime:
             if body["expected_task_revision"] != base["revision"]:
                 raise CreatorError("REVISION_CONFLICT", "Refresh the saved Planner task", 409, base["revision"])
             policy = copy.deepcopy(self.policy)
+            if task is not None and (task.get("role_workflow") != policy.get("role_workflow")
+                                     or "role_workflow" in task and task["environment"] != self.environment()):
+                raise CreatorError("POLICY_STALE", "Execution workflow and environment are frozen at the first quote", 409)
             account_id = policy["account_scope_id"]
             account = {"id": account_id, "limit_units": units(policy["account_limit_cny"]), "max_calls": policy["account_max_calls"]}
             if payload["accounts"].get(account_id, account) != account:
@@ -262,10 +282,16 @@ class ExecutionRuntime:
                     "messages": [{"role": "system", "content": copy.deepcopy(SYSTEM)}, {"role": "user", "content": {"task_id": task_id, "source_snapshot_hash": source["snapshot_hash"]}}],
                     "read_source": False, "repair_count": 0, "active_grant_id": None, "plan": None, "events": []}
                 payload["tasks"][task_id] = task
+                if "role_workflow" in policy:
+                    from core.execution.roles import initial
+                    task.update(role_workflow=policy["role_workflow"], role_state=initial(), environment=self.environment(), source_mode="normal")
             quote = {"id": uuid.uuid4().hex, "task_id": task_id, "planner_task_revision": base["revision"], "snapshot_hash": task["snapshot_hash"],
                 "policy": policy, "per_call_hold_cny": money(cost(policy["max_input_tokens"], policy["max_output_tokens"], policy)),
                 "total_limit_cny": money(min(task["task_limit_units"], units(policy["task_limit_cny"]))), "max_calls": min(task["max_calls"], policy["max_calls"]),
                 "expires_at": policy["valid_until"], "created_at": utc_now()}
+            if "role_workflow" in task:
+                from core.execution.roles import SCOPE as ROLE_SCOPE
+                quote.update(role_workflow=task["role_workflow"], role_scope=copy.deepcopy(ROLE_SCOPE))
             quote["disclosure_hash"] = digest(quote)
             payload["quotes"][quote["id"]] = quote
             self.bump(task, "quote_created")
@@ -296,6 +322,8 @@ class ExecutionRuntime:
             grant = {"id": uuid.uuid4().hex, "task_id": task_id, "quote_id": quote["id"], "snapshot_hash": task["snapshot_hash"],
                 "policy_hash": quote["policy"]["policy_hash"], "disclosure_hash": quote["disclosure_hash"], "scope": SCOPE,
                 "total_limit_cny": quote["total_limit_cny"], "max_calls": quote["max_calls"], "expires_at": quote["expires_at"], "created_at": utc_now(), "revoked_at": None}
+            if "role_workflow" in task:
+                grant.update(role_workflow=task["role_workflow"], role_scope_hash=digest(quote["role_scope"]))
             payload["grants"][grant["id"]] = grant
             task["active_grant_id"] = grant["id"]
             if task["plan"] is None and self.pending(payload, task) is None:
@@ -334,6 +362,9 @@ class ExecutionRuntime:
                     pending = self.pending(payload, task)
                     if pending and pending["status"] != "received":
                         pending["status"] = "needs_reconciliation"
+                        if "role_workflow" in task:
+                            from core.execution.roles import unknown
+                            unknown(task, pending["role"])
                     task["status"], task["reason"] = ("needs_reconciliation", "RESPONSE_UNCONFIRMED") if pending and pending["status"] != "received" else ("stopped", "RECOVERY_REQUIRES_RESUME")
                     self.bump(task, "execution_recovered", task["reason"], pending["id"] if pending else None)
         finally:
@@ -375,8 +406,20 @@ class ExecutionRuntime:
         if reason:
             operation["status"] = "needs_reconciliation"
             task["status"], task["reason"] = "needs_reconciliation", reason
+            if "role_workflow" in task:
+                from core.execution.roles import unknown
+                unknown(task, operation["role"])
             self.bump(task, "receipt_unconfirmed", reason, operation["id"])
             return False
+        if "role_workflow" in task:
+            from core.execution.roles import complete
+            operation["status"], operation["local_units"] = "settled", receipt["local_units"]
+            feedback = complete(task, operation, receipt["content"])
+            operation["tool_result"] = feedback
+            if task["status"] not in {"running", "plan_ready", "blocked", "stopped"}:
+                task["status"], task["reason"] = "ready", None
+            self.bump(task, "receipt_locally_accounted", feedback.get("code"), operation["id"])
+            return True
         feedback, plan, read = execute_tool(receipt["content"], task["source"], task["read_source"])
         operation["status"], operation["local_units"], operation["tool_result"] = "settled", receipt["local_units"], feedback
         task["messages"].extend([{"role": "assistant", "content": receipt["content"]}, {"role": "tool", "content": feedback}])
@@ -455,7 +498,14 @@ class ExecutionRuntime:
                         return
                     reason = self.gate(payload, task)
                     policy = copy.deepcopy(self.policy)
-                    context = copy.deepcopy(task["messages"])
+                    operation_id = uuid.uuid4().hex
+                    role_tags, binding = {}, None
+                    if "role_workflow" in task and reason is None:
+                        from core.execution.roles import prepare
+                        role, index, binding, context = prepare(task, operation_id)
+                        role_tags = {"role_workflow": task["role_workflow"], "role": role, "role_call_index": index, "role_binding_hash": digest(binding)}
+                    else:
+                        context = copy.deepcopy(task["messages"])
                     wire = wire_for(context, policy) if policy else ""
                     if len(json.dumps(context, ensure_ascii=False).encode("utf-8")) > LIMITS["max_context_bytes"] or policy and len(wire.encode("utf-8")) > policy["max_input_bytes"]:
                         reason = "CONTEXT_LIMIT"
@@ -468,7 +518,6 @@ class ExecutionRuntime:
                         return
                     grant = payload["grants"][task["active_grant_id"]]
                     quote = payload["quotes"][grant["quote_id"]]
-                    operation_id = uuid.uuid4().hex
                     deadline = min(now() + timedelta(seconds=policy["request_deadline_seconds"]), datetime.fromisoformat(grant["expires_at"]), datetime.fromisoformat(quote["expires_at"]), datetime.fromisoformat(policy["valid_until"]))
                     permit = {"operation_id": operation_id, "task_id": task_id, "snapshot_hash": task["snapshot_hash"], "context_hash": digest(context), "wire_hash": digest(wire),
                         "grant_id": grant["id"], "quote_id": quote["id"], "policy_hash": policy["policy_hash"], "endpoint": policy["endpoint"], "model": policy["model"],
@@ -479,10 +528,15 @@ class ExecutionRuntime:
                     if "chat_output_parameter" in policy:
                         protocol_tag["chat_output_parameter"] = policy["chat_output_parameter"]
                     permit.update(protocol_tag)
+                    permit.update(role_tags)
                     operation = {"id": operation_id, "task_id": task_id, "step": totals(payload, task_id=task_id)["calls"] + 1,
                         "grant_id": grant["id"], "quote_id": quote["id"], "account_id": policy["account_scope_id"], "snapshot_hash": task["snapshot_hash"], "policy_hash": policy["policy_hash"],
                         "context": context, "context_hash": digest(context), "wire": wire, "wire_hash": digest(wire), "permit": permit, "permit_hash": digest(permit),
                         "status": "submitting", "hold_units": permit["hold_units"], "local_units": None, "raw": None, "normalized": None, "tool_result": None, "created_at": utc_now(), **protocol_tag}
+                    if role_tags:
+                        from core.execution.roles import begin
+                        operation.update(role_tags, role_binding=binding)
+                        begin(task, role, binding)
                     payload["operations"][operation_id] = operation
                     self.bump(task, "operation_reserved", operation_id=operation_id)
                 try:
@@ -501,6 +555,9 @@ class ExecutionRuntime:
                             current["transport_diagnostic"] = diagnostic
                         task["status"] = "stopped" if task["status"] == "stopped" else "needs_reconciliation"
                         task["reason"] = "RESPONSE_UNCONFIRMED"
+                        if "role_workflow" in task:
+                            from core.execution.roles import unknown
+                            unknown(task, current["role"])
                         self.bump(task, "response_unconfirmed", task["reason"], operation_id)
                     return
                 with self.store.transaction() as payload:

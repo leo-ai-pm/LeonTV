@@ -81,6 +81,7 @@ class ExecutionPolicy(Strict):
     endpoint: str
     wire_api: Literal["chat_completions", "responses"] = "chat_completions"
     chat_output_parameter: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    role_workflow: Literal["bounded_revision_v1"] = "bounded_revision_v1"
     currency: Literal["CNY"] = "CNY"
     input_cny_per_million: str
     output_cny_per_million: str
@@ -121,6 +122,8 @@ class ExecutionPolicy(Strict):
         result = super().model_dump(*args, **kwargs)
         if "chat_output_parameter" not in self.model_fields_set:
             result.pop("chat_output_parameter", None)
+        if "role_workflow" not in self.model_fields_set:
+            result.pop("role_workflow", None)
         return result
 
     def frozen(self):

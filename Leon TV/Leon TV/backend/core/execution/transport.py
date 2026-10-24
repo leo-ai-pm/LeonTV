@@ -71,6 +71,9 @@ class ControlledTransport:
         self.input_bounder = input_bounder
 
     def _preflight(self, operation, policy):
+        from core.execution.roles import validate_operation_tags
+
+        validate_operation_tags(operation, policy, verify_context=True)
         permit = operation["permit"]
         pairs = {"operation_id": "id", "task_id": "task_id", "snapshot_hash": "snapshot_hash", "context_hash": "context_hash", "wire_hash": "wire_hash", "grant_id": "grant_id", "quote_id": "quote_id", "account_id": "account_id", "policy_hash": "policy_hash", "hold_units": "hold_units"}
         valid = operation["permit_hash"] == digest(permit) and all(permit[key] == operation[field] for key, field in pairs.items())

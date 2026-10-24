@@ -16,6 +16,19 @@ from core.planner.store import check_source
 EMPTY = {"tasks": {}, "quotes": {}, "grants": {}, "operations": {}, "keys": {}, "accounts": {}}
 
 
+def has_roles(payload):
+    names = {"role_workflow", "role_state", "environment", "role", "role_call_index", "role_binding_hash", "role_binding", "role_scope", "role_scope_hash"}
+    return any(bool(set(record) & names) or bool(set(record.get("permit", {})) & names)
+               or "role_workflow" in record.get("policy", {})
+               for namespace in ("tasks", "quotes", "grants", "operations") for record in payload[namespace].values())
+
+
+def validate_roles(payload, previous=None):
+    if has_roles(payload) or previous is not None and has_roles(previous):
+        from core.execution.roles import validate
+        validate(payload, previous)
+
+
 def require(condition):
     if not condition:
         raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks")
@@ -84,6 +97,7 @@ def validate_payload(payload):
         require(namespace in {"quote", "grant", "revoke", "action"} and bool(KEY_RE.fullmatch(token)))
         require(receipt["request_hash"] == digest({"key": key, **receipt["request"]}))
         require(receipt["task_id"] in payload["tasks"] and receipt["request"]["task_id"] == receipt["task_id"])
+    validate_roles(payload)
 
 
 def validate_state(state):
@@ -95,9 +109,11 @@ def validate_state(state):
         require(set(frame) == {"revision", "saved_at", "previous_hash", "hash", "delta"} and type(frame["revision"]) is int and frame["revision"] == revision)
         require(frame["previous_hash"] == previous and frame["hash"] == digest({key: value for key, value in frame.items() if key != "hash"}))
         require(isinstance(frame["delta"], dict) and set(frame["delta"]) <= set(EMPTY))
+        before = {namespace: dict(records) for namespace, records in payload.items()}
         for namespace, records in frame["delta"].items():
             require(isinstance(records, dict))
             payload[namespace].update(copy.deepcopy(records))
+        validate_roles(payload, before)
         previous = frame["hash"]
     require(state["head_hash"] == previous)
     validate_payload(payload)
@@ -131,13 +147,27 @@ class ExecutionStore(CreatorBriefStore):
                 except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, RecursionError):
                     raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
                 original = copy.deepcopy(payload)
+                original_digest = digest(original) if has_roles(original) else None
                 yield payload
-                if payload != original or not path.exists():
-                    validate_payload(payload)
+                try:
+                    profiled = has_roles(payload) or has_roles(original)
+                    if profiled:
+                        from core.execution.roles import json_tree
+                        json_tree(payload)
+                    changed_payload = digest(payload) != (original_digest or digest(original)) if profiled else payload != original
+                    if changed_payload and profiled:
+                        validate_roles(payload, original)
+                except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, RecursionError):
+                    raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
+                if changed_payload or not path.exists():
+                    try:
+                        validate_payload(payload)
+                    except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, RecursionError):
+                        raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
                     require(all(set(original[namespace]) <= set(payload[namespace]) for namespace in EMPTY))
                     delta = {}
                     for namespace, records in payload.items():
-                        changed = {key: copy.deepcopy(value) for key, value in records.items() if key not in original[namespace] or original[namespace][key] != value}
+                        changed = {key: copy.deepcopy(value) for key, value in records.items() if key not in original[namespace] or (digest(original[namespace][key]) != digest(value) if profiled else original[namespace][key] != value)}
                         if changed:
                             delta[namespace] = changed
                     frame = {"revision": len(state["frames"]) + 1, "saved_at": utc_now(), "previous_hash": state["head_hash"], "delta": delta}
