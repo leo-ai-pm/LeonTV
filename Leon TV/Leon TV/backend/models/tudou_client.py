@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import mimetypes
@@ -53,7 +54,12 @@ class TudouClient:
                                  timeout=120, proxies=Config.requests_proxies("tudou"))
         response.raise_for_status()
         data = response.json()
+        if (not isinstance(data, dict) or isinstance(data.get("code"), bool)
+                or data.get("code") not in (None, 0, 200)):
+            raise RuntimeError("土豆 API 提交未返回成功回执，请先核查原提交。")
         item = data.get("data") or data
+        if not isinstance(item, dict):
+            raise RuntimeError("土豆 API 提交未返回有效任务回执，请先核查原提交。")
         task_id = item.get("id") or item.get("task_id")
         if not task_id:
             raise RuntimeError(f"土豆 API 未返回任务 ID：{str(data)[:300]}")
@@ -92,28 +98,84 @@ class TudouClient:
                                 "status": receipt["status"], "receipt_path": str(path),
                                 "error_code": (receipt.get("error") or {}).get("code")})
 
+    @staticmethod
+    def _video_file_digest(path: Path) -> tuple[str, int]:
+        digest, size = hashlib.sha256(), 0
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+                size += len(chunk)
+        return digest.hexdigest(), size
+
+    def _refresh_completed_video_result(self, task_id: str) -> dict:
+        """Read the same accepted task once; never poll, submit, or accept another task's result."""
+        response = requests.get(f"{self.base_url}/v1/tasks/{task_id}", headers=self.headers,
+                                timeout=60, proxies=Config.requests_proxies("tudou"))
+        response.raise_for_status()
+        payload = response.json()
+        if (not isinstance(payload, dict) or isinstance(payload.get("code"), bool)
+                or payload.get("code") not in (None, 0, 200)):
+            raise RuntimeError("土豆 API 未返回原视频任务的成功查询回执。")
+        item = payload.get("data") or payload
+        if not isinstance(item, dict):
+            raise RuntimeError("土豆 API 未返回原视频任务的有效查询回执。")
+        identifiers = [item[key] for key in ("id", "task_id") if item.get(key) is not None]
+        if not identifiers or any(not isinstance(value, str) or value != task_id for value in identifiers):
+            raise RuntimeError("土豆 API 查询回执与原视频任务编号不一致。")
+        result = item.get("result")
+        if str(item.get("status") or "").lower() not in {"completed", "succeeded"} or not isinstance(result, dict):
+            raise RuntimeError("土豆 API 查询未确认原视频任务的完成结果。")
+        if not urlparse(self._first_url(result, "video")).netloc:
+            raise RuntimeError("土豆 API 查询未返回有效的视频链接。")
+        return result
+
     def _complete_video(self, receipt_path: Path, receipt: dict) -> str:
         task_id = receipt["task_id"]
-        completed = False
+        completed = receipt.get("status") == "completed" and isinstance(receipt.get("result"), dict)
+        cached_completed = completed
         try:
-            result = self._poll(task_id)
+            result = receipt["result"] if completed else self._poll(task_id)
             completed = True
             receipt.update(status="completed", result=result, error=None)
             self._save_receipt(receipt_path, receipt)
             url = self._first_url(result, "video")
-            self._download(url, Path(receipt["save_path"]))
-            receipt["downloaded"] = True
-            self._save_receipt(receipt_path, receipt)
+            path = Path(receipt["save_path"])
+            delivered = False
+            expected_digest, expected_size = receipt.get("delivery_sha256"), receipt.get("delivery_size_bytes")
+            if (receipt.get("downloaded") and isinstance(expected_digest, str) and len(expected_digest) == 64
+                    and type(expected_size) is int and expected_size > 0 and path.is_file()):
+                try:
+                    delivered = self._video_file_digest(path) == (expected_digest, expected_size)
+                except OSError:
+                    pass
+            if not delivered:
+                try:
+                    self._download(url, path)
+                except requests.HTTPError as exc:
+                    response = exc.response
+                    if not cached_completed or response is None or response.status_code not in {403, 404, 410}:
+                        raise
+                    refreshed_result = self._refresh_completed_video_result(task_id)
+                    receipt.setdefault("previous_completed_result", result)
+                    receipt["result"] = result = refreshed_result
+                    self._save_receipt(receipt_path, receipt)
+                    url = self._first_url(result, "video")
+                    self._download(url, path)
+                digest, size = self._video_file_digest(path)
+                if not size:
+                    raise RuntimeError("土豆 API 返回空视频文件。")
+                receipt.update(downloaded=True, delivery_sha256=digest, delivery_size_bytes=size)
+                self._save_receipt(receipt_path, receipt)
             return url
         except Exception as exc:
-            if isinstance(exc, TimeoutError) and not completed:
+            if completed:
+                error = TudouTaskError(str(exc), task_id, "delivery_failed", "completed")
+            elif isinstance(exc, TimeoutError):
                 error = TudouPollTimeout(task_id)
             elif isinstance(exc, TudouTaskError):
                 error = exc
             else:
-                error = TudouTaskError(str(exc), task_id,
-                                       "delivery_failed" if completed else "query_failed",
-                                       "completed" if completed else "unknown")
+                error = TudouTaskError(str(exc), task_id, "query_failed", "unknown")
             receipt.update(status=error.status,
                            error={"code": error.code, "message": str(error)})
             try:
@@ -124,15 +186,32 @@ class TudouClient:
                 raise
             raise error from exc
 
-    def resume_video(self, receipt_path: str) -> str:
-        """Query/download an accepted task; this method never calls the submit endpoint."""
-        path = Path(receipt_path)
-        receipt = json.loads(path.read_text(encoding="utf-8"))
-        if receipt.get("provider") != "tudou" or receipt.get("kind") == "image" or not receipt.get("task_id"):
-            raise ValueError("没有已接受的土豆任务，无法继续查询。")
+    def _resume_video(self, path: Path, receipt: dict) -> str:
+        if receipt.get("provider") != "tudou" or receipt.get("kind") == "image":
+            raise ValueError("没有土豆视频任务回执，无法继续查询。")
         if receipt.get("base_url") != self.base_url:
             raise ValueError("土豆 API 地址已改变，请恢复原任务使用的地址后再查询。")
+        save_path = receipt.get("save_path")
+        if not isinstance(save_path, str) or not save_path or Path(f"{save_path}.tudou-task.json").resolve() != path:
+            raise ValueError("视频输出路径与原任务回执不一致。")
+        if receipt.get("status") in {"failed", "error", "expired", "cancelled", "rejected"}:
+            error = receipt.get("error") or {}
+            raise TudouTaskError(error.get("message") or "土豆视频原任务已终止，请保留原任务记录。",
+                                 receipt.get("task_id"), error.get("code") or "upstream_failed", receipt["status"])
+        if not receipt.get("task_id"):
+            raise TudouTaskError("原提交结果尚未确认，请先核查土豆任务记录，避免重复扣费。",
+                                 None, "submit_unknown", "unknown")
         return self._complete_video(path, receipt)
+
+    def resume_video(self, receipt_path: str) -> str:
+        """Query/deliver the original task under the same lock as generation; never submit."""
+        path = Path(receipt_path).resolve()
+        lock = lock_file(Path(f"{path}.lock"))
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+            return self._resume_video(path, receipt)
+        finally:
+            unlock_file(lock)
 
     @staticmethod
     def _first_url(result: dict, kind: str) -> str:
@@ -326,38 +405,37 @@ class TudouClient:
             body["extra"] = {"aspect_ratio": ratio, "resolution": resolution}
         if image_path:
             body["images"] = [self._public_video_reference(image_path)]
-        path = Path(save_path)
+        path = Path(save_path).resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
         receipt_path = Path(f"{path}.tudou-task.json")
-        if receipt_path.exists():
-            previous = json.loads(receipt_path.read_text(encoding="utf-8"))
-            if previous.get("request") != body:
-                raise ValueError("该输出路径已有不同请求的任务回执，请保留原任务并使用新路径。")
-            if previous.get("task_id"):
-                return self.resume_video(str(receipt_path))
-            # A submission with an unknown outcome must not be sent again automatically.
-            if previous.get("status") in {"submitting", "unknown"}:
-                raise TudouTaskError("原提交结果尚未确认，请先核查土豆任务记录，避免重复扣费。",
-                                     None, "submit_unknown", "unknown")
-        receipt = {"provider": "tudou", "base_url": self.base_url,
-                   "request": body, "save_path": str(path), "status": "submitting",
-                   "submitted_at": time.time(), "task_id": None}
-        self._save_receipt(receipt_path, receipt)
+        lock = lock_file(Path(f"{receipt_path}.lock"))
         try:
-            task_id = self._submit("/v1/videos/generations", body)
-        except Exception as exc:
-            response = getattr(exc, "response", None)
-            http_status = response.status_code if response is not None else None
-            rejected = http_status is not None and 400 <= http_status < 500 and http_status != 408
-            status, code = ("rejected", "submit_rejected") if rejected else ("unknown", "submit_unknown")
-            message = f"土豆 API 拒绝提交：{exc}" if rejected else "土豆 API 提交结果尚未确认，请先核查提供商任务记录，避免重复扣费。"
-            receipt.update(status=status, error={"code": code, "message": message})
+            if receipt_path.exists():
+                previous = json.loads(receipt_path.read_text(encoding="utf-8"))
+                if previous.get("request") != body:
+                    raise ValueError("该输出路径已有不同请求的任务回执，请保留原任务并使用新路径。")
+                return self._resume_video(receipt_path, previous)
+            receipt = {"provider": "tudou", "base_url": self.base_url,
+                       "request": body, "save_path": str(path), "status": "submitting",
+                       "submitted_at": time.time(), "task_id": None}
             self._save_receipt(receipt_path, receipt)
-            raise TudouTaskError(message, None, code, status) from exc
-        receipt.update(task_id=task_id, status="accepted")
-        try:
-            self._save_receipt(receipt_path, receipt)
-        except Exception as exc:
-            raise TudouTaskError("土豆已接受任务，但回执保存异常，请先核查原任务。",
-                                 task_id, "receipt_failed", "unknown") from exc
-        return self._complete_video(receipt_path, receipt)
+            try:
+                task_id = self._submit("/v1/videos/generations", body)
+            except Exception as exc:
+                response = getattr(exc, "response", None)
+                http_status = response.status_code if response is not None else None
+                rejected = http_status is not None and 400 <= http_status < 500 and http_status != 408
+                status, code = ("rejected", "submit_rejected") if rejected else ("unknown", "submit_unknown")
+                message = f"土豆 API 拒绝提交：{exc}" if rejected else "土豆 API 提交结果尚未确认，请先核查提供商任务记录，避免重复扣费。"
+                receipt.update(status=status, error={"code": code, "message": message})
+                self._save_receipt(receipt_path, receipt)
+                raise TudouTaskError(message, None, code, status) from exc
+            receipt.update(task_id=task_id, status="accepted")
+            try:
+                self._save_receipt(receipt_path, receipt)
+            except Exception as exc:
+                raise TudouTaskError("土豆已接受任务，但回执保存异常，请先核查原任务。",
+                                     task_id, "receipt_failed", "unknown") from exc
+            return self._complete_video(receipt_path, receipt)
+        finally:
+            unlock_file(lock)
