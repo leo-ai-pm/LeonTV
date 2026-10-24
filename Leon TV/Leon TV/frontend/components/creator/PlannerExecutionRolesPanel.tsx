@@ -1,3 +1,5 @@
+import { isSyntheticExecutionEnvironment } from '@/lib/plannerExecutionView';
+import { isEmpiricalExecution } from '@/lib/plannerExecutionRisk';
 import type { ExecutionDetail, ExecutionRoleState } from '@/lib/plannerExecutionTypes';
 
 const statuses: Record<ExecutionRoleState['status'], string> = {
@@ -17,7 +19,7 @@ export default function PlannerExecutionRolesPanel({ execution }: { execution: E
   return <section className="creator-execution-block" aria-labelledby="execution-roles-heading">
     <h4 id="execution-roles-heading">文本角色协作结果（只读）</h4>
     <p className="creator-badge" role="status">{statuses[state.status]}{state.accepted_plan_version ? ` · v${state.accepted_plan_version}` : ''}</p>
-    <p className="creator-muted">一次开始后自动交接 Planner、Reviewer、Repairer、Rechecker。四个角色共用原任务、授权、累计调用与费用账本，不分别获得新额度。</p>
+    <p className="creator-muted">{isEmpiricalExecution(execution) ? 'Planner、Reviewer、Repairer、Rechecker 共用原任务、授权、累计风险与次数。每次调用须由服务端核对平台费用后才处理角色输出，再决定是否交接下一角色。' : '一次开始后自动交接 Planner、Reviewer、Repairer、Rechecker。四个角色共用原任务、授权、累计调用与费用账本，不分别获得新额度。'}</p>
     <dl className="creator-record"><div><dt>Planner · 规划调用</dt><dd>{state.planner_call_count} 次</dd></div>
       <div><dt>Reviewer · 首审 v1</dt><dd>{state.reviewer_call_count} / {state.max_reviewer_calls} 次 · {conclusion(state.first_verdict)}</dd></div>
       <div><dt>Repairer · 有限改稿</dt><dd>{state.repairer_call_count} / {state.max_repairer_calls} 次</dd></div>
@@ -28,7 +30,7 @@ export default function PlannerExecutionRolesPanel({ execution }: { execution: E
     {state.status.endsWith('_response_unknown') && <p className="creator-notice">当前角色回执未确认，原意图、调用数和未决预占保留，不能自动重调。核对已有回执不会发起新模型调用。</p>}
     {['rejected','unknown','recheck_invalid'].includes(state.status) && <p className="creator-notice">本轮有限改稿和复核已停止，不再自动创建下一版本；v1 首审结论不能用于 v2。</p>}
     {state.accepted_plan_version === 1 && <p className="creator-muted">首审已接受 v1，本轮未为演示制造改稿或 v2。</p>}
-    <p className="creator-muted">这里只显示安全状态、结论与版本引用。{execution.environment === 'synthetic_test' ? '合成结论不构成真实文字质量验收。' : '结论仅绑定该计划版本的一次文字审阅。'}媒体生成与人工验收尚未完成，供应商账单未确认。</p>
+    <p className="creator-muted">这里只显示安全状态、结论与版本引用。{isSyntheticExecutionEnvironment(execution.environment) ? '合成结论不构成真实文字质量验收。' : '结论仅绑定该计划版本的一次文字审阅。'}媒体生成与人工验收尚未完成，供应商账单未确认。</p>
     <details className="creator-conflict-details"><summary>查看首审、改稿、复核与版本绑定</summary><dl className="creator-record">
       <div><dt>首审版本 / 报告摘要</dt><dd>{state.first_review_binding ? `v${state.first_review_binding.plan_version}` : '未委派'} / <code>{state.first_report_hash ?? '尚无有效报告'}</code></dd></div>
       <div><dt>改稿操作 / 范围摘要</dt><dd><code>{state.repair_binding?.intent_id ?? '未委派'} / {state.repair_task_hash ?? '尚无提案'}</code></dd></div>

@@ -7,12 +7,12 @@ from datetime import datetime, timedelta
 
 from core.creator.store import CreatorError, digest, utc_now
 from core.execution.policy import (
-    SCOPE,
     TrustedInputBounder,
     chat_output_parameter,
-    cost,
     money,
     now,
+    policy_hold,
+    policy_scope,
     protocol_endpoint_matches,
     safe_policy,
     units,
@@ -33,11 +33,13 @@ from core.planner.runtime import SYSTEM
 
 
 class ExecutionRuntime:
-    def __init__(self, root, planner, *, policy=None, enabled=False, api_key=None, transport=None, input_bounder=None, receipt_capture=None):
+    def __init__(self, root, planner, *, policy=None, enabled=False, api_key=None, transport=None, input_bounder=None, receipt_capture=None, budget_anchor=None, anchor_guard=None, fee_verifier=None):
         self.store, self.planner = ExecutionStore(root), planner
         self.policy = policy.frozen() if policy is not None else None
         self.enabled, self.api_key, self.transport = enabled, api_key, transport
         self.input_bounder = input_bounder
+        self.budget_anchor = budget_anchor.frozen() if hasattr(budget_anchor, "frozen") else copy.deepcopy(budget_anchor)
+        self.anchor_guard, self.fee_verifier = anchor_guard, fee_verifier
         if receipt_capture is not None and not isinstance(receipt_capture, ReceiptCaptureSettings):
             raise ValueError("Explicit server receipt capture settings required")
         self.receipt_capture = receipt_capture
@@ -48,6 +50,9 @@ class ExecutionRuntime:
         operation = payload["operations"].get(operation_id)
         if operation is None or operation["task_id"] != task_id:
             raise CreatorError("NOT_FOUND", "Execution operation not found", 404)
+        if "empirical" in operation:
+            from core.execution.empirical import inspect_operation
+            return inspect_operation(self.store.root, operation)
         return {"inspection": ReceiptStore(self.store.root / "receipts").inspect(operation)}
 
     def close(self):
@@ -60,11 +65,24 @@ class ExecutionRuntime:
             return "POLICY_UNAVAILABLE"
         if not protocol_endpoint_matches(self.policy):
             return "POLICY_UNAVAILABLE"
-        if not isinstance(self.input_bounder, TrustedInputBounder) or self.input_bounder.policy_hash != self.policy["policy_hash"] or not self.input_bounder.verification_ref or not callable(self.input_bounder.upper_bound):
+        empirical = self.policy.get("kind") == "empirical_risk_v1"
+        if empirical:
+            from core.execution.empirical import checked_anchor
+            try:
+                checked_anchor(self.budget_anchor, self.policy)
+                if self.receipt_capture is None or not callable(self.anchor_guard) or not callable(self.fee_verifier):
+                    return "POLICY_UNAVAILABLE"
+                if self.policy["validation_only"] and not self.receipt_capture.worker_factory:
+                    return "POLICY_UNAVAILABLE"
+                if not self.policy["validation_only"] and (self.receipt_capture.worker_factory or self.receipt_capture.worker_options):
+                    return "POLICY_UNAVAILABLE"
+            except Exception:
+                return "POLICY_UNAVAILABLE"
+        elif not isinstance(self.input_bounder, TrustedInputBounder) or self.input_bounder.policy_hash != self.policy["policy_hash"] or not self.input_bounder.verification_ref or not callable(self.input_bounder.upper_bound):
             return "POLICY_UNAVAILABLE"
         if payload is not None and payload["accounts"] and self.policy["account_scope_id"] not in payload["accounts"]:
             return "POLICY_UNAVAILABLE"
-        if self.policy["validation_only"]:
+        if self.policy["validation_only"] and not empirical:
             import httpx
             if not isinstance(self.transport, httpx.MockTransport):
                 return "POLICY_UNAVAILABLE"
@@ -73,6 +91,8 @@ class ExecutionRuntime:
     def environment(self):
         if not self.enabled:
             return "disabled"
+        if self.policy and self.policy.get("kind") == "empirical_risk_v1":
+            return "synthetic_empirical_test" if self.policy["validation_only"] else "empirical_live"
         return "synthetic_test" if self.policy and self.policy["validation_only"] else "live"
 
     def task_environment(self, payload, task):
@@ -133,6 +153,8 @@ class ExecutionRuntime:
         reason = self.availability(payload)
         if reason:
             return reason
+        if self.account_risk_overrun(payload, task):
+            return "EMPIRICAL_RISK_OVERRUN"
         if self.pending(payload, task) is not None:
             return "RESPONSE_UNCONFIRMED"
         if "role_workflow" in task:
@@ -149,7 +171,7 @@ class ExecutionRuntime:
         quote = payload["quotes"][grant["quote_id"]]
         if self.quote_status(quote) != "valid":
             return "QUOTE_EXPIRED" if self.quote_status(quote) == "expired" else "POLICY_STALE"
-        if grant["snapshot_hash"] != task["snapshot_hash"] or grant["scope"] != SCOPE or quote["policy"]["policy_hash"] != self.policy["policy_hash"]:
+        if grant["snapshot_hash"] != task["snapshot_hash"] or grant["scope"] != policy_scope(self.policy) or quote["policy"]["policy_hash"] != self.policy["policy_hash"]:
             return "POLICY_STALE"
         account_id = quote["policy"]["account_scope_id"]
         account = payload["accounts"][account_id]
@@ -161,7 +183,13 @@ class ExecutionRuntime:
             return "BUDGET_EXHAUSTED"
         if task["repair_count"] >= 2:
             return "REPAIR_LIMIT"
+        if "accounting_kind" in task and task["reason"] == "EMPIRICAL_RISK_OVERRUN":
+            return "EMPIRICAL_RISK_OVERRUN"
         return None
+
+    @staticmethod
+    def account_risk_overrun(payload, task):
+        return "accounting_kind" in task and any(op["account_id"] == task["account_id"] and op.get("empirical", {}).get("fee_status") == "overrun" for op in payload["operations"].values())
 
     def detail(self, payload, task_id, base=None):
         task = payload["tasks"].get(task_id)
@@ -186,8 +214,10 @@ class ExecutionRuntime:
             actions = ["stop"]
         elif pending:
             actions = ["stop"] if status != "stopped" else []
-            if pending["raw"] is not None and status not in {"running", "queued"}:
+            if pending["raw"] is not None and status not in {"running", "queued"} and "empirical" not in pending:
                 actions.append("reconcile")
+            if "empirical" in pending and status not in {"running", "queued"} and self.empirical_resumable(payload, task, pending):
+                actions.append("resume")
         elif status != "plan_ready" and self.gate(payload, task) is None:
             actions = ["resume"]
         if status in {"ready", "blocked", "not_authorized", "stopped"} and pending is None:
@@ -208,12 +238,15 @@ class ExecutionRuntime:
                 "receipt_status": "confirmed_local" if op["status"] == "settled" else "received" if op["status"] == "received" else "unconfirmed" if op["status"] == "needs_reconciliation" else "none",
                 "created_at": op["created_at"], "received_at": op["raw"]["received_at"] if op["raw"] else None,
                 **({key: op[key] for key in ["role_workflow", "role", "role_call_index", "role_binding_hash"]} if "role_workflow" in op else {})})
+            if "empirical" in op:
+                from core.execution.empirical import projection as empirical_projection
+                operations[-1].update(empirical_projection(op))
         if "role_workflow" in task:
             from core.execution.roles import projection
             role_projection = {"role_workflow": task["role_workflow"], "role_state": projection(task["role_state"])}
         else:
             role_projection = {}
-        return {"task_id": task_id, "revision": task["revision"], "environment": self.task_environment(payload, task), "status": status, "blocked_reason": reason,
+        result = {"task_id": task_id, "revision": task["revision"], "environment": self.task_environment(payload, task), "status": status, "blocked_reason": reason,
             "allowed_actions": actions, "source": self.planner.source_summary(task["source"]), "policy_available": self.availability(payload) is None,
             "active_grant_id": task["active_grant_id"], "quotes": [self.quote_view(q) for q in payload["quotes"].values() if q["task_id"] == task_id],
             "grants": [self.grant_view(g) for g in payload["grants"].values() if g["task_id"] == task_id],
@@ -223,6 +256,11 @@ class ExecutionRuntime:
                 "account_max_calls": account["max_calls"], "provider_bill_confirmed": False},
             "operations": operations, "plan": copy.deepcopy(task["plan"]), "quality_status": "not_reviewed",
             "created_at": task["created_at"], "updated_at": task["updated_at"], **role_projection}
+        if "accounting_kind" in task:
+            result.update(accounting_kind=task["accounting_kind"], parent_anchor_hash=task["parent_anchor_hash"])
+            from core.execution.empirical import ledger_projection
+            result["ledger"].update(ledger_projection(payload, task))
+        return result
 
     @staticmethod
     def replay(payload, namespace, key, request):
@@ -266,11 +304,15 @@ class ExecutionRuntime:
             if body["expected_task_revision"] != base["revision"]:
                 raise CreatorError("REVISION_CONFLICT", "Refresh the saved Planner task", 409, base["revision"])
             policy = copy.deepcopy(self.policy)
-            if task is not None and (task.get("role_workflow") != policy.get("role_workflow")
+            if task is not None and (task.get("role_workflow") != policy.get("role_workflow") or task.get("accounting_kind") != policy.get("kind")
                                      or "role_workflow" in task and task["environment"] != self.environment()):
                 raise CreatorError("POLICY_STALE", "Execution workflow and environment are frozen at the first quote", 409)
             account_id = policy["account_scope_id"]
             account = {"id": account_id, "limit_units": units(policy["account_limit_cny"]), "max_calls": policy["account_max_calls"]}
+            if policy.get("kind") == "empirical_risk_v1":
+                from core.execution.empirical import checked_anchor
+                anchor = checked_anchor(self.budget_anchor, policy)
+                account.update(accounting_kind=policy["kind"], parent_anchor_hash=anchor["parent_anchor_hash"], anchor=anchor)
             if payload["accounts"].get(account_id, account) != account:
                 raise CreatorError("POLICY_UNAVAILABLE", "Account scope ceilings require a separate server review", 409)
             payload["accounts"][account_id] = account
@@ -285,13 +327,17 @@ class ExecutionRuntime:
                 if "role_workflow" in policy:
                     from core.execution.roles import initial
                     task.update(role_workflow=policy["role_workflow"], role_state=initial(), environment=self.environment(), source_mode="normal")
+                if policy.get("kind") == "empirical_risk_v1":
+                    task.update(accounting_kind=policy["kind"], parent_anchor_hash=policy["parent_anchor_hash"])
             quote = {"id": uuid.uuid4().hex, "task_id": task_id, "planner_task_revision": base["revision"], "snapshot_hash": task["snapshot_hash"],
-                "policy": policy, "per_call_hold_cny": money(cost(policy["max_input_tokens"], policy["max_output_tokens"], policy)),
+                "policy": policy, "per_call_hold_cny": money(policy_hold(policy)),
                 "total_limit_cny": money(min(task["task_limit_units"], units(policy["task_limit_cny"]))), "max_calls": min(task["max_calls"], policy["max_calls"]),
                 "expires_at": policy["valid_until"], "created_at": utc_now()}
             if "role_workflow" in task:
                 from core.execution.roles import SCOPE as ROLE_SCOPE
                 quote.update(role_workflow=task["role_workflow"], role_scope=copy.deepcopy(ROLE_SCOPE))
+            if "accounting_kind" in task:
+                quote.update(accounting_kind=task["accounting_kind"], parent_anchor_hash=task["parent_anchor_hash"], per_call_risk_cny=policy["per_call_risk_cny"])
             quote["disclosure_hash"] = digest(quote)
             payload["quotes"][quote["id"]] = quote
             self.bump(task, "quote_created")
@@ -317,13 +363,15 @@ class ExecutionRuntime:
             status = self.quote_status(quote)
             if status != "valid":
                 raise CreatorError("QUOTE_EXPIRED" if status == "expired" else "POLICY_STALE", "Quote no longer authorizes a new grant", 409)
-            if body["accepted_disclosure_hash"] != quote["disclosure_hash"] or body["accepted_scope"] != SCOPE or body["consent"] is not True:
+            if body["accepted_disclosure_hash"] != quote["disclosure_hash"] or body["accepted_scope"] != policy_scope(quote["policy"]) or body["consent"] is not True:
                 raise CreatorError("CONSENT_MISMATCH", "Explicit consent must match the displayed server disclosure", 409)
             grant = {"id": uuid.uuid4().hex, "task_id": task_id, "quote_id": quote["id"], "snapshot_hash": task["snapshot_hash"],
-                "policy_hash": quote["policy"]["policy_hash"], "disclosure_hash": quote["disclosure_hash"], "scope": SCOPE,
+                "policy_hash": quote["policy"]["policy_hash"], "disclosure_hash": quote["disclosure_hash"], "scope": policy_scope(quote["policy"]),
                 "total_limit_cny": quote["total_limit_cny"], "max_calls": quote["max_calls"], "expires_at": quote["expires_at"], "created_at": utc_now(), "revoked_at": None}
             if "role_workflow" in task:
                 grant.update(role_workflow=task["role_workflow"], role_scope_hash=digest(quote["role_scope"]))
+            if "accounting_kind" in task:
+                grant.update(accounting_kind=task["accounting_kind"], parent_anchor_hash=task["parent_anchor_hash"])
             payload["grants"][grant["id"]] = grant
             task["active_grant_id"] = grant["id"]
             if task["plan"] is None and self.pending(payload, task) is None:
@@ -397,6 +445,8 @@ class ExecutionRuntime:
         if operation["raw"] is None:
             return False
         policy = payload["quotes"][operation["quote_id"]]["policy"]
+        if "empirical" in operation:
+            return self.process_empirical_receipt(payload, task, operation, policy)
         receipt, reason = normalized(operation["raw"], policy, operation["hold_units"], operation["permit"]["input_token_upper"])
         if self.api_key and any(isinstance(value, str) and self.api_key in value for value in receipt.values()):
             receipt = {key: None if isinstance(value, str) and self.api_key in value else value for key, value in receipt.items()}
@@ -435,6 +485,105 @@ class ExecutionRuntime:
         self.bump(task, "receipt_locally_accounted", feedback.get("code"), operation["id"])
         return True
 
+    def empirical_resumable(self, payload, task, operation):
+        value = operation["empirical"]
+        if value["fee_status"] != "matched" or value["receipt_classification"] != "complete" or self.availability(payload) or self.account_risk_overrun(payload, task):
+            return False
+        grant = payload["grants"].get(task["active_grant_id"])
+        return bool(grant and self.grant_status(grant) == "active" and self.quote_status(payload["quotes"][grant["quote_id"]]) == "valid")
+
+    def process_empirical_receipt(self, payload, task, operation, policy):
+        from core.execution.empirical import decode
+        from core.execution.roles import complete, unknown
+        receipt, reason = decode(operation["raw"], policy)
+        operation["normalized"], operation["local_units"] = receipt, receipt["local_units"]
+        value = operation["empirical"]
+        value.update(receipt_classification=receipt["receipt_classification"], output_limit_observed=receipt["output_limit_observed"])
+        if receipt["local_units"] is not None and value["fee_status"] == "awaiting_receipt":
+            value["fee_status"] = "awaiting_platform_fee"
+        if (receipt["local_units"] or 0) > operation["hold_units"] or (value["platform_units"] or 0) > operation["hold_units"]:
+            value["fee_status"] = "overrun"
+            task["status"], task["reason"] = "blocked", "EMPIRICAL_RISK_OVERRUN"
+            self.bump(task, "empirical_risk_overrun", task["reason"], operation["id"])
+            return False
+        if reason:
+            operation["status"] = "needs_reconciliation"
+            unknown(task, operation["role"])
+            task["status"], task["reason"] = "needs_reconciliation", reason
+            self.bump(task, "empirical_receipt_unusable", reason, operation["id"])
+            return False
+        if self.account_risk_overrun(payload, task):
+            task["status"], task["reason"] = "blocked", "EMPIRICAL_RISK_OVERRUN"
+            self.bump(task, "empirical_account_halted", task["reason"], operation["id"])
+            return False
+        if value["fee_evidence"] is None:
+            task["status"], task["reason"] = "needs_reconciliation", "PLATFORM_FEE_REQUIRED"
+            self.bump(task, "empirical_platform_fee_required", task["reason"], operation["id"])
+            return False
+        operation["status"] = "settled"
+        operation["tool_result"] = complete(task, operation, receipt["content"])
+        self.bump(task, "empirical_receipt_processed", operation["tool_result"].get("code"), operation["id"])
+        return True
+
+    def observe_fee(self, task_id, operation_id, evidence, *, expected_execution_revision=None):
+        """Server-only evidence ingestion. There is deliberately no HTTP route."""
+        from core.execution.empirical import guarded, observation
+        lock = self.store.execution_lock(task_id)
+        if lock is None:
+            raise CreatorError("ACTION_NOT_ALLOWED", "Execution response is still active", 409)
+        schedule = False
+        try:
+            with self.store.transaction() as payload:
+                operation = payload["operations"].get(operation_id)
+                if operation is None or operation["task_id"] != task_id or "empirical" not in operation:
+                    raise CreatorError("NOT_FOUND", "Empirical operation not found", 404)
+                task = payload["tasks"][task_id]
+                if expected_execution_revision is not None:
+                    self.check_revision(task, expected_execution_revision)
+                policy = payload["quotes"][operation["quote_id"]]["policy"]
+                if operation["normalized"] is None and operation["raw"] is not None:
+                    paused_status, paused_reason = task["status"], task["reason"]
+                    self.process_empirical_receipt(payload, task, operation, policy)
+                    if paused_status == "stopped":
+                        task["status"], task["reason"] = paused_status, paused_reason
+                try:
+                    record = observation(evidence, operation, policy)
+                    if not guarded(self.fee_verifier, evidence, operation, policy):
+                        raise ValueError()
+                except Exception:
+                    raise CreatorError("FEE_EVIDENCE_REJECTED", "Server fee evidence did not match the operation", 422) from None
+                old = operation["empirical"]["fee_evidence"]
+                if old is not None:
+                    if digest(old) != digest(record):
+                        raise CreatorError("FEE_EVIDENCE_CONFLICT", "The operation already has immutable fee evidence", 409)
+                    return {"execution": self.detail(payload, task_id), "replayed": True}
+                if any(op.get("empirical", {}).get("fee_evidence", {}).get("platform_log_id") == record["platform_log_id"]
+                       for op in payload["operations"].values() if op.get("empirical", {}).get("fee_evidence") is not None):
+                    raise CreatorError("FEE_EVIDENCE_CONFLICT", "Platform evidence already belongs to another operation", 409)
+                value = operation["empirical"]
+                value.update(fee_evidence=record, platform_units=record["platform_units"], fee_status="overrun" if max(record["platform_units"], operation["local_units"] or 0) > operation["hold_units"] else "matched")
+                paused = task["status"] == "stopped"
+                self.bump(task, "empirical_platform_fee_observed", operation_id=operation_id)
+                if value["fee_status"] == "overrun" or self.account_risk_overrun(payload, task):
+                    task["status"], task["reason"] = "blocked", "EMPIRICAL_RISK_OVERRUN"
+                elif not paused and self.empirical_resumable(payload, task, operation) and task["active_grant_id"] == operation["grant_id"] and self.grant_status(payload["grants"][operation["grant_id"]]) == "active":
+                    task["status"], task["reason"] = "running", None
+                    self.process_empirical_receipt(payload, task, operation, policy)
+                    if task["status"] == "running":
+                        reason = self.gate(payload, task)
+                        task["status"], task["reason"] = ("blocked", reason) if reason else ("queued", None)
+                        schedule = reason is None
+                elif not paused and value["receipt_classification"] == "complete" and task["active_grant_id"] != operation["grant_id"]:
+                    task["status"], task["reason"] = "stopped", "RECOVERY_REQUIRES_RESUME"
+                result = {"execution": self.detail(payload, task_id), "replayed": False}
+            if schedule:
+                self.pool.submit(self.worker, task_id, lock)
+                lock = None
+            return result
+        finally:
+            if lock is not None:
+                unlock_file(lock)
+
     def action(self, task_id, body):
         self.get(task_id)
         request = {"task_id": task_id, **body}
@@ -454,6 +603,8 @@ class ExecutionRuntime:
                     raise CreatorError("ACTION_NOT_ALLOWED", "Execution action is unavailable in this state", 409)
                 if action == "resume":
                     reason = self.gate(payload, task)
+                    if pending and "empirical" in pending and self.empirical_resumable(payload, task, pending):
+                        reason = None
                     if reason or task["status"] in {"running", "queued", "plan_ready"}:
                         raise CreatorError("ACTION_NOT_ALLOWED", "Execution is blocked by " + (reason or "current state"), 409)
                     lock = self.store.execution_lock(task_id)
@@ -491,6 +642,11 @@ class ExecutionRuntime:
                     return
                 task["status"] = "running"
                 self.bump(task, "execution_started")
+                pending = self.pending(payload, task)
+                if pending and "empirical" in pending:
+                    policy = payload["quotes"][pending["quote_id"]]["policy"]
+                    if not self.empirical_resumable(payload, task, pending) or not self.process_empirical_receipt(payload, task, pending, policy) or task["status"] != "running":
+                        return
             while True:
                 with self.store.transaction() as payload:
                     task = payload["tasks"][task_id]
@@ -498,6 +654,11 @@ class ExecutionRuntime:
                         return
                     reason = self.gate(payload, task)
                     policy = copy.deepcopy(self.policy)
+                    empirical = bool(policy and policy.get("kind") == "empirical_risk_v1")
+                    if empirical:
+                        from core.execution.empirical import guarded
+                        if not guarded(self.anchor_guard, self.budget_anchor):
+                            reason = reason or "PARENT_ANCHOR_CHANGED"
                     operation_id = uuid.uuid4().hex
                     role_tags, binding = {}, None
                     if "role_workflow" in task and reason is None:
@@ -509,8 +670,8 @@ class ExecutionRuntime:
                     wire = wire_for(context, policy) if policy else ""
                     if len(json.dumps(context, ensure_ascii=False).encode("utf-8")) > LIMITS["max_context_bytes"] or policy and len(wire.encode("utf-8")) > policy["max_input_bytes"]:
                         reason = "CONTEXT_LIMIT"
-                    input_upper = self.input_bounder.estimate(wire, policy) if policy and self.input_bounder else None
-                    if type(input_upper) is not int or input_upper > policy["max_input_tokens"]:
+                    input_upper = self.input_bounder.estimate(wire, policy) if policy and self.input_bounder and not empirical else None
+                    if not empirical and (type(input_upper) is not int or input_upper > policy["max_input_tokens"]):
                         reason = reason or "CONTEXT_LIMIT"
                     if reason:
                         task["status"], task["reason"] = "blocked", reason
@@ -521,9 +682,16 @@ class ExecutionRuntime:
                     deadline = min(now() + timedelta(seconds=policy["request_deadline_seconds"]), datetime.fromisoformat(grant["expires_at"]), datetime.fromisoformat(quote["expires_at"]), datetime.fromisoformat(policy["valid_until"]))
                     permit = {"operation_id": operation_id, "task_id": task_id, "snapshot_hash": task["snapshot_hash"], "context_hash": digest(context), "wire_hash": digest(wire),
                         "grant_id": grant["id"], "quote_id": quote["id"], "policy_hash": policy["policy_hash"], "endpoint": policy["endpoint"], "model": policy["model"],
-                        "scope": SCOPE, "account_id": policy["account_scope_id"], "input_token_upper": input_upper, "bounder_ref": self.input_bounder.verification_ref,
+                        "scope": policy_scope(policy), "account_id": policy["account_scope_id"],
                         "hold_units": units(quote["per_call_hold_cny"]), "deadline_at": deadline.isoformat(), "issued_at": utc_now(),
-                        "grant_expires_at": grant["expires_at"], "quote_expires_at": quote["expires_at"], **{key: policy[key] for key in ["currency", "max_input_tokens", "max_output_tokens", "max_input_bytes", "max_output_bytes"]}, "nonce": uuid.uuid4().hex}
+                        "grant_expires_at": grant["expires_at"], "quote_expires_at": quote["expires_at"], **{key: policy[key] for key in ["currency", "max_output_tokens", "max_input_bytes", "max_output_bytes"]}, "nonce": uuid.uuid4().hex}
+                    if empirical:
+                        from core.planner.review import RULE_HASH
+                        permit.update(accounting_kind=policy["kind"], parent_anchor_hash=policy["parent_anchor_hash"], risk_basis=policy["risk_basis"],
+                                      disclosure_hash=grant["disclosure_hash"], rules_hash=RULE_HASH,
+                                      risk_begin_hash=digest({"operation_id": operation_id, "task_id": task_id, "parent_anchor_hash": policy["parent_anchor_hash"], "step": totals(payload, task_id=task_id)["calls"] + 1, "risk_units": permit["hold_units"]}))
+                    else:
+                        permit.update(input_token_upper=input_upper, bounder_ref=self.input_bounder.verification_ref, max_input_tokens=policy["max_input_tokens"])
                     protocol_tag = {"wire_api": policy["wire_api"]} if "wire_api" in policy else {}
                     if "chat_output_parameter" in policy:
                         protocol_tag["chat_output_parameter"] = policy["chat_output_parameter"]
@@ -537,10 +705,18 @@ class ExecutionRuntime:
                         from core.execution.roles import begin
                         operation.update(role_tags, role_binding=binding)
                         begin(task, role, binding)
+                    if empirical:
+                        from core.execution.empirical import descriptor_for, initial
+                        operation.update(accounting_kind=policy["kind"], parent_anchor_hash=policy["parent_anchor_hash"], empirical=initial())
+                        descriptor = descriptor_for(operation, policy, self.budget_anchor)
+                        operation["empirical"].update(capture_descriptor=descriptor.frozen(), capture_binding=descriptor.binding())
                     payload["operations"][operation_id] = operation
                     self.bump(task, "operation_reserved", operation_id=operation_id)
                 try:
-                    if self.receipt_capture is None:
+                    if empirical:
+                        from core.execution.empirical import EmpiricalTransport
+                        transport = EmpiricalTransport(self.store, self.budget_anchor, self.anchor_guard, self.receipt_capture)
+                    elif self.receipt_capture is None:
                         transport = ControlledTransport(self.transport, self.input_bounder)
                     else:
                         from core.execution.receipt_transport import CapturedTransport

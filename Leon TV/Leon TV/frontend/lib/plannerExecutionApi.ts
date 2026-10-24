@@ -1,6 +1,7 @@
 import { readPlannerPlan, readPlannerSource } from './briefPlannerApi';
-import { EXECUTION_SCOPE, type ExecutionActionRequest, type ExecutionChatOutputParameter, type ExecutionDetail, type ExecutionEvent, type ExecutionGrant, type ExecutionGrantRequest, type ExecutionLedger, type ExecutionOperation, type ExecutionPolicy, type ExecutionPolicyResult, type ExecutionQuote, type ExecutionQuoteRequest, type ExecutionRevokeRequest, type ExecutionResponseStatus, type ExecutionWireApi, type ExecutionWrite } from './plannerExecutionTypes';
+import { EMPIRICAL_ACCOUNTING_KIND, EMPIRICAL_EXECUTION_SCOPE, EXECUTION_ROLE_WORKFLOW, EXECUTION_SCOPE, type ExecutionActionRequest, type ExecutionChatOutputParameter, type ExecutionDetail, type ExecutionEvent, type ExecutionGrant, type ExecutionGrantRequest, type ExecutionLedger, type ExecutionOperation, type ExecutionPolicy, type ExecutionPolicyResult, type ExecutionQuote, type ExecutionQuoteRequest, type ExecutionRevokeRequest, type ExecutionResponseStatus, type ExecutionWireApi, type ExecutionWrite } from './plannerExecutionTypes';
 import { ExecutionRoleReader } from './plannerExecutionRoles';
+import { ExecutionRiskReader } from './plannerExecutionRisk';
 
 export class PlannerExecutionError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -17,6 +18,7 @@ const nullableCount = (v: unknown): v is number | null => v === null || count(v)
 function invalid(): never { throw new PlannerExecutionError(0, 'INVALID_RESPONSE', '规划记录响应格式不符合要求，原请求与未决费用保持，请重新查询。'); }
 function object(v: unknown): Record<string, unknown> { if (!v || typeof v !== 'object' || Array.isArray(v)) return invalid(); return v as Record<string, unknown>; }
 const roles = new ExecutionRoleReader(invalid);
+const risk = new ExecutionRiskReader(invalid);
 function wireApi(value: unknown): ExecutionWireApi {
   // D10's display-only legacy default must not backfill or rehash any saved object.
   if (value === undefined) return 'chat_completions';
@@ -34,45 +36,48 @@ function chatOutputProjection(data: Record<string, unknown>, wire: ExecutionWire
   return { chat_output_parameter: parameter };
 }
 export function readExecutionPolicy(value: unknown): ExecutionPolicy {
-  const p = object(value), wire = wireApi(p.wire_api);
+  const p = object(value), empirical = risk.policy(p), wire = wireApi(p.wire_api);
   const output = chatOutputProjection(p, wire);
   if (!text(p.id) || !text(p.version) || !hash(p.policy_hash) || p.provider !== 'openai_compatible' || !text(p.model) || !p.model || !text(p.endpoint) || p.currency !== 'CNY' ||
     !text(p.input_cny_per_million) || !/^\d+(?:\.\d+)?$/.test(p.input_cny_per_million) || !text(p.output_cny_per_million) || !/^\d+(?:\.\d+)?$/.test(p.output_cny_per_million) ||
-    !positive(p.max_input_tokens) || !positive(p.max_output_tokens) || !positive(p.max_input_bytes) || !positive(p.max_output_bytes) ||
+    !positive(p.max_output_tokens) || !positive(p.max_input_bytes) || !positive(p.max_output_bytes) ||
     typeof p.request_deadline_seconds !== 'number' || !Number.isFinite(p.request_deadline_seconds) || p.request_deadline_seconds <= 0 || !positive(p.max_calls) ||
-    !money(p.task_limit_cny) || !money(p.account_limit_cny) || !positive(p.account_max_calls) || !text(p.valid_until) || p.privacy_scope !== EXECUTION_SCOPE ||
-    !text(p.pricing_basis) || !text(p.input_bound_basis)) return invalid();
+    !money(p.task_limit_cny) || !money(p.account_limit_cny) || !positive(p.account_max_calls) || !text(p.valid_until) || !text(p.pricing_basis) ||
+    !empirical && (!positive(p.max_input_tokens) || p.privacy_scope !== EXECUTION_SCOPE || !text(p.input_bound_basis))) return invalid();
   let endpoint: URL;
   try { endpoint = new URL(p.endpoint); } catch { return invalid(); }
   if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
     !endpoint.pathname.endsWith(wire === 'responses' ? '/responses' : '/chat/completions')) return invalid();
-  return { ...roles.policy(p), wire_api: wire, ...output, id: p.id, version: p.version, policy_hash: p.policy_hash, provider: 'openai_compatible', model: p.model, endpoint: p.endpoint, currency: 'CNY',
-    input_cny_per_million: p.input_cny_per_million, output_cny_per_million: p.output_cny_per_million, max_input_tokens: p.max_input_tokens,
+  const common = { wire_api: wire, ...output, id: p.id, version: p.version, policy_hash: p.policy_hash, provider: 'openai_compatible' as const, model: p.model, endpoint: p.endpoint, currency: 'CNY' as const,
+    input_cny_per_million: p.input_cny_per_million, output_cny_per_million: p.output_cny_per_million,
     max_output_tokens: p.max_output_tokens, max_input_bytes: p.max_input_bytes, max_output_bytes: p.max_output_bytes, request_deadline_seconds: p.request_deadline_seconds,
     max_calls: p.max_calls, task_limit_cny: p.task_limit_cny, account_limit_cny: p.account_limit_cny, account_max_calls: p.account_max_calls,
-    valid_until: p.valid_until, privacy_scope: EXECUTION_SCOPE, pricing_basis: p.pricing_basis, input_bound_basis: p.input_bound_basis };
+    valid_until: p.valid_until, pricing_basis: p.pricing_basis };
+  if (empirical) return { ...common, kind: EMPIRICAL_ACCOUNTING_KIND, privacy_scope: EMPIRICAL_EXECUTION_SCOPE, role_workflow: EXECUTION_ROLE_WORKFLOW,
+    per_call_risk_cny: p.per_call_risk_cny as string, risk_basis: 'empirical_not_hard_billing_bound', parent_anchor_hash: p.parent_anchor_hash as string };
+  return { ...common, ...roles.policy(p), privacy_scope: EXECUTION_SCOPE, max_input_tokens: p.max_input_tokens as number, input_bound_basis: p.input_bound_basis as string };
 }
 export function readExecutionQuote(value: unknown): ExecutionQuote {
   const q = object(value);
   if (!id(q.id) || !id(q.task_id) || !positive(q.planner_task_revision) || !hash(q.snapshot_hash) || !money(q.per_call_hold_cny) || !money(q.total_limit_cny) ||
     !positive(q.max_calls) || !text(q.expires_at) || !hash(q.disclosure_hash) || !text(q.created_at) || !['valid','expired','policy_stale'].includes(String(q.status))) return invalid();
   const policy = readExecutionPolicy(q.policy);
-  return { ...roles.quote(q, policy), id: q.id, task_id: q.task_id, planner_task_revision: q.planner_task_revision, snapshot_hash: q.snapshot_hash, policy,
+  return { ...roles.quote(q, policy), ...risk.quote(q, policy), id: q.id, task_id: q.task_id, planner_task_revision: q.planner_task_revision, snapshot_hash: q.snapshot_hash, policy,
     per_call_hold_cny: q.per_call_hold_cny, total_limit_cny: q.total_limit_cny, max_calls: q.max_calls, expires_at: q.expires_at,
     disclosure_hash: q.disclosure_hash, created_at: q.created_at, status: q.status as ExecutionQuote['status'] };
 }
 export function readExecutionGrant(value: unknown): ExecutionGrant {
   const g = object(value);
-  if (!id(g.id) || !id(g.task_id) || !id(g.quote_id) || !hash(g.snapshot_hash) || !hash(g.policy_hash) || !hash(g.disclosure_hash) || g.scope !== EXECUTION_SCOPE ||
+  if (!id(g.id) || !id(g.task_id) || !id(g.quote_id) || !hash(g.snapshot_hash) || !hash(g.policy_hash) || !hash(g.disclosure_hash) || (g.scope !== EXECUTION_SCOPE && g.scope !== EMPIRICAL_EXECUTION_SCOPE) ||
     !['active','expired','revoked','policy_stale'].includes(String(g.status)) || !money(g.total_limit_cny) || !positive(g.max_calls) || !text(g.expires_at) || !text(g.created_at) || !nullableText(g.revoked_at)) return invalid();
-  return { ...roles.grant(g), id: g.id, task_id: g.task_id, quote_id: g.quote_id, snapshot_hash: g.snapshot_hash, policy_hash: g.policy_hash, disclosure_hash: g.disclosure_hash, scope: EXECUTION_SCOPE,
+  return { ...roles.grant(g), ...risk.grant(g), id: g.id, task_id: g.task_id, quote_id: g.quote_id, snapshot_hash: g.snapshot_hash, policy_hash: g.policy_hash, disclosure_hash: g.disclosure_hash, scope: g.scope,
     status: g.status as ExecutionGrant['status'], total_limit_cny: g.total_limit_cny, max_calls: g.max_calls, expires_at: g.expires_at, created_at: g.created_at, revoked_at: g.revoked_at };
 }
 function readLedger(value: unknown): ExecutionLedger {
   const l = object(value);
   if (l.currency !== 'CNY' || !money(l.locally_accounted_cny) || !money(l.held_cny) || !nullableMoney(l.task_limit_cny) || !count(l.call_count) || !nullableCount(l.max_calls) ||
     !money(l.account_locally_accounted_cny) || !money(l.account_held_cny) || !nullableMoney(l.account_limit_cny) || !count(l.account_call_count) || !nullableCount(l.account_max_calls) || l.provider_bill_confirmed !== false) return invalid();
-  return { currency: 'CNY', locally_accounted_cny: l.locally_accounted_cny, held_cny: l.held_cny, task_limit_cny: l.task_limit_cny,
+  return { ...risk.ledger(l), currency: 'CNY', locally_accounted_cny: l.locally_accounted_cny, held_cny: l.held_cny, task_limit_cny: l.task_limit_cny,
     call_count: l.call_count, max_calls: l.max_calls, account_locally_accounted_cny: l.account_locally_accounted_cny,
     account_held_cny: l.account_held_cny, account_limit_cny: l.account_limit_cny, account_call_count: l.account_call_count,
     account_max_calls: l.account_max_calls, provider_bill_confirmed: false };
@@ -89,14 +94,14 @@ function readOperation(value: unknown): ExecutionOperation {
     !nullableCount(cached) || !nullableCount(reasoning) ||
     wire === 'chat_completions' && responseStatus !== null || wire === 'responses' && o.finish_reason !== null ||
     cached !== null && (o.input_tokens === null || cached > o.input_tokens) || reasoning !== null && (o.output_tokens === null || reasoning > o.output_tokens)) return invalid();
-  return { ...roles.operation(o), wire_api: wire, ...output, response_status: responseStatus as ExecutionResponseStatus | null, cached_input_tokens: cached, reasoning_output_tokens: reasoning,
+  return { ...roles.operation(o), ...risk.operation(o), wire_api: wire, ...output, response_status: responseStatus as ExecutionResponseStatus | null, cached_input_tokens: cached, reasoning_output_tokens: reasoning,
     id: o.id, step: o.step, status: o.status as ExecutionOperation['status'], grant_id: o.grant_id, quote_id: o.quote_id, policy_hash: o.policy_hash, context_hash: o.context_hash,
     hold_cny: o.hold_cny, locally_accounted_cny: o.locally_accounted_cny, provider_request_id: o.provider_request_id, provider_response_id: o.provider_response_id,
     input_tokens: o.input_tokens, output_tokens: o.output_tokens, finish_reason: o.finish_reason, receipt_status: o.receipt_status as ExecutionOperation['receipt_status'], created_at: o.created_at, received_at: o.received_at };
 }
 export function readExecutionDetail(value: unknown): ExecutionDetail {
   const d = object(value);
-  if (!id(d.task_id) || !count(d.revision) || !text(d.environment) || !['disabled','synthetic_test','live'].includes(d.environment) || !['not_authorized','ready','queued','running','stopped','blocked','needs_reconciliation','plan_ready'].includes(String(d.status)) ||
+  if (!id(d.task_id) || !count(d.revision) || !text(d.environment) || !['disabled','synthetic_test','live','empirical_live','synthetic_empirical_test'].includes(d.environment) || !['not_authorized','ready','queued','running','stopped','blocked','needs_reconciliation','plan_ready'].includes(String(d.status)) ||
     !nullableText(d.blocked_reason) || !Array.isArray(d.allowed_actions) || !d.allowed_actions.every(a => a === 'resume' || a === 'stop' || a === 'reconcile') || typeof d.policy_available !== 'boolean' ||
     !(d.active_grant_id === null || id(d.active_grant_id)) || !Array.isArray(d.quotes) || !Array.isArray(d.grants) || !Array.isArray(d.operations) || d.quality_status !== 'not_reviewed' ||
     !nullableText(d.created_at) || !nullableText(d.updated_at)) return invalid();
@@ -106,7 +111,8 @@ export function readExecutionDetail(value: unknown): ExecutionDetail {
     allowed_actions: d.allowed_actions as ExecutionDetail['allowed_actions'], source, policy_available: d.policy_available, active_grant_id: d.active_grant_id,
     quotes, grants, ledger: readLedger(d.ledger), operations: d.operations.map(readOperation), plan: d.plan === null ? null : readPlannerPlan(d.plan, source.snapshot_hash),
     quality_status: 'not_reviewed', created_at: d.created_at, updated_at: d.updated_at };
-  return { ...execution, ...roles.detail(d, execution) };
+  const withRoles = { ...execution, ...roles.detail(d, execution) };
+  return { ...withRoles, ...risk.detail(d, withRoles) };
 }
 async function request(url: string, method = 'GET', body?: unknown) {
   const abort = new AbortController(), timer = setTimeout(() => abort.abort(), 15000);
@@ -142,8 +148,10 @@ const root = (id: string) => `/api/planner/tasks/${encodeURIComponent(id)}/execu
 export const plannerExecutionApi = {
   async policy(): Promise<ExecutionPolicyResult> {
     const d = await request('/api/planner/execution/policy');
-    if (typeof d.available !== 'boolean' || !nullableText(d.blocked_reason) || !text(d.environment) || !['disabled','synthetic_test','live'].includes(d.environment) || (d.available ? d.policy === null : d.policy !== null)) return invalid();
-    return { available: d.available, blocked_reason: d.blocked_reason, environment: d.environment, policy: d.policy === null ? null : readExecutionPolicy(d.policy) };
+    if (typeof d.available !== 'boolean' || !nullableText(d.blocked_reason) || !text(d.environment) || !['disabled','synthetic_test','live','empirical_live','synthetic_empirical_test'].includes(d.environment) || (d.available ? d.policy === null : d.policy !== null)) return invalid();
+    const policy = d.policy === null ? null : readExecutionPolicy(d.policy);
+    if (policy && (policy.kind === EMPIRICAL_ACCOUNTING_KIND) !== ['empirical_live','synthetic_empirical_test'].includes(d.environment)) return invalid();
+    return { available: d.available, blocked_reason: d.blocked_reason, environment: d.environment, policy };
   },
   async get(id: string) { return readExecutionDetail((await request(root(id))).execution); },
   async quote(id: string, input: ExecutionQuoteRequest) { return write(await request(`${root(id)}/quotes`, 'POST', input), 'quote'); },

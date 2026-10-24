@@ -57,6 +57,9 @@ def unconfirmed_code(error):
 
 
 def wire_for(messages, policy):
+    if policy.get("kind") == "empirical_risk_v1":
+        from experiments.planner_live.empirical_capture import empirical_wire_for
+        return empirical_wire_for(messages, model=policy["model"], chat_output_parameter=policy["chat_output_parameter"], max_output_tokens=policy["max_output_tokens"])
     if wire_api(policy) == "responses":
         return request_wire(messages, policy)
     payload = {"model": policy["model"], chat_output_parameter(policy): policy["max_output_tokens"], "messages": [
@@ -73,6 +76,8 @@ class ControlledTransport:
     def _preflight(self, operation, policy):
         from core.execution.roles import validate_operation_tags
 
+        if policy.get("kind") == "empirical_risk_v1":
+            raise ResponseUnconfirmed("PERMIT_REJECTED")
         validate_operation_tags(operation, policy, verify_context=True)
         permit = operation["permit"]
         pairs = {"operation_id": "id", "task_id": "task_id", "snapshot_hash": "snapshot_hash", "context_hash": "context_hash", "wire_hash": "wire_hash", "grant_id": "grant_id", "quote_id": "quote_id", "account_id": "account_id", "policy_hash": "policy_hash", "hold_units": "hold_units"}

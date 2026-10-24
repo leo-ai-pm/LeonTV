@@ -73,6 +73,14 @@ def cost(input_tokens, output_tokens, policy):
     return int((Decimal(input_tokens) * Decimal(policy["input_cny_per_million"]) + Decimal(output_tokens) * Decimal(policy["output_cny_per_million"])).to_integral_value(rounding=ROUND_CEILING))
 
 
+def policy_scope(policy):
+    return policy["privacy_scope"] if policy.get("kind") == "empirical_risk_v1" else SCOPE
+
+
+def policy_hold(policy):
+    return units(policy["per_call_risk_cny"]) if policy.get("kind") == "empirical_risk_v1" else cost(policy["max_input_tokens"], policy["max_output_tokens"], policy)
+
+
 class ExecutionPolicy(Strict):
     id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
     version: str = Field(min_length=1, max_length=80)
@@ -135,7 +143,7 @@ class ExecutionPolicy(Strict):
 
 
 def safe_policy(policy):
-    result = {key: value for key, value in policy.items() if key not in {"account_scope_id", "operator_approved", "billing_bound_verified", "validation_only"}}
+    result = {key: value for key, value in policy.items() if key not in {"account_scope_id", "operator_approved", "billing_bound_verified", "operator_risk_approved", "validation_only"}}
     for key in ["task_limit_cny", "account_limit_cny"]:
         result[key] = money(units(result[key]))
     result["wire_api"] = wire_api(policy)  # Projection only, never backfill storage.
@@ -156,7 +164,7 @@ class GrantInput(Strict):
     expected_execution_revision: int = Field(ge=1)
     quote_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     accepted_disclosure_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
-    accepted_scope: Literal["frozen_brief_and_tool_history_to_named_provider"]
+    accepted_scope: Literal["frozen_brief_and_tool_history_to_named_provider", "frozen_brief_and_bounded_roles_empirical_risk_to_named_provider"]
     consent: Literal[True]
 
     @model_validator(mode="before")

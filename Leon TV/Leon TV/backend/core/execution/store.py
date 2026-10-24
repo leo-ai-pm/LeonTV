@@ -17,10 +17,10 @@ EMPTY = {"tasks": {}, "quotes": {}, "grants": {}, "operations": {}, "keys": {}, 
 
 
 def has_roles(payload):
-    names = {"role_workflow", "role_state", "environment", "role", "role_call_index", "role_binding_hash", "role_binding", "role_scope", "role_scope_hash"}
+    names = {"role_workflow", "role_state", "environment", "role", "role_call_index", "role_binding_hash", "role_binding", "role_scope", "role_scope_hash", "accounting_kind", "empirical", "parent_anchor_hash"}
     return any(bool(set(record) & names) or bool(set(record.get("permit", {})) & names)
                or "role_workflow" in record.get("policy", {})
-               for namespace in ("tasks", "quotes", "grants", "operations") for record in payload[namespace].values())
+               for namespace in ("tasks", "quotes", "grants", "operations", "accounts") for record in payload[namespace].values())
 
 
 def validate_roles(payload, previous=None):
@@ -35,13 +35,19 @@ def require(condition):
 
 
 def exposure(operation):
+    if "empirical" in operation:
+        return max(operation["hold_units"], operation["local_units"] or 0, operation["empirical"]["platform_units"] or 0)
     return operation["local_units"] if operation["status"] == "settled" else operation["hold_units"]
 
 
 def totals(payload, *, task_id=None, account_id=None):
     ops = [op for op in payload["operations"].values() if (task_id is None or op["task_id"] == task_id) and (account_id is None or op["account_id"] == account_id)]
-    return {"accounted": sum(op["local_units"] for op in ops if op["status"] == "settled"),
-            "held": sum(op["hold_units"] for op in ops if op["status"] != "settled"), "calls": len(ops)}
+    account = payload["accounts"].get(account_id, {}) if task_id is None else {}
+    opening = account.get("anchor", {})
+    from core.execution.policy import units
+    return {"accounted": sum(exposure(op) for op in ops if op["status"] == "settled"),
+            "held": sum(exposure(op) for op in ops if op["status"] != "settled") + units(opening.get("opening_exposure_cny", "0")),
+            "calls": len(ops) + opening.get("opening_call_count", 0)}
 
 
 def validate_payload(payload):
@@ -54,19 +60,21 @@ def validate_payload(payload):
         require(task["source"]["snapshot_hash"] == task["snapshot_hash"])
         require(type(task["task_limit_units"]) is int and task["task_limit_units"] > 0)
         amount = totals(payload, task_id=task_id)
-        require(amount["accounted"] + amount["held"] <= task["task_limit_units"] and amount["calls"] <= min(task["max_calls"], 6))
+        overrun = any(op.get("empirical", {}).get("fee_status") == "overrun" for op in payload["operations"].values() if op["task_id"] == task_id)
+        require((amount["accounted"] + amount["held"] <= task["task_limit_units"] or overrun) and amount["calls"] <= min(task["max_calls"], 6))
         for sequence, event in enumerate(task["events"], 1):
             require(set(event) == {"sequence", "type", "execution_revision", "created_at", "operation_id", "code"} and event["sequence"] == sequence and event["execution_revision"] == sequence)
     for account_id, account in payload["accounts"].items():
         require(account["id"] == account_id)
         amount = totals(payload, account_id=account_id)
-        require(amount["accounted"] + amount["held"] <= account["limit_units"] and amount["calls"] <= account["max_calls"])
+        overrun = any(op.get("empirical", {}).get("fee_status") == "overrun" for op in payload["operations"].values() if op["account_id"] == account_id)
+        require((amount["accounted"] + amount["held"] <= account["limit_units"] or overrun) and amount["calls"] <= account["max_calls"])
     for op_id, operation in payload["operations"].items():
         require(bool(ID_RE.fullmatch(op_id)) and operation["id"] == op_id and operation["task_id"] in payload["tasks"])
         require(operation["account_id"] in payload["accounts"] and operation["grant_id"] in payload["grants"] and operation["quote_id"] in payload["quotes"])
         require(type(operation["hold_units"]) is int and operation["hold_units"] > 0)
         require(operation["status"] in {"submitting", "received", "settled", "needs_reconciliation"})
-        require(operation["local_units"] is None or type(operation["local_units"]) is int and 0 <= operation["local_units"] <= operation["hold_units"])
+        require(operation["local_units"] is None or type(operation["local_units"]) is int and 0 <= operation["local_units"] and ("empirical" in operation or operation["local_units"] <= operation["hold_units"]))
         require(operation["status"] != "settled" or operation["local_units"] is not None)
         if "transport_diagnostic" in operation:
             diagnostic = operation["transport_diagnostic"]

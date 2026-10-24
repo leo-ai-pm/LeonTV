@@ -1,5 +1,6 @@
 import { plannerExecutionApi, PlannerExecutionError } from './plannerExecutionApi';
-import { EXECUTION_SCOPE, type ExecutionAction, type ExecutionDetail, type ExecutionEvent, type ExecutionGrant, type ExecutionIntent, type ExecutionPolicyResult, type ExecutionQuote, type ExecutionWrite } from './plannerExecutionTypes';
+import { EMPIRICAL_EXECUTION_SCOPE, EXECUTION_SCOPE, type ExecutionAction, type ExecutionDetail, type ExecutionEvent, type ExecutionGrant, type ExecutionIntent, type ExecutionPolicyResult, type ExecutionQuote, type ExecutionWrite } from './plannerExecutionTypes';
+import { empiricalExecutionBlocked, executionPolicyMatchesProfile, isEmpiricalExecution } from './plannerExecutionRisk';
 import type { PlannerSummary } from './briefPlannerTypes';
 
 interface StoragePort { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
@@ -23,9 +24,9 @@ function readIntent(raw: string | null): ExecutionIntent | null {
   const base = { version: 1 as const, task_id: d.task_id as string, snapshot_hash: d.snapshot_hash as string };
   if (d.kind === 'quote' && key(r.client_request_key) && revision(r.expected_task_revision) && r.expected_task_revision > 0)
     return { ...base, kind: 'quote', request: { client_request_key: r.client_request_key, expected_execution_revision: r.expected_execution_revision, expected_task_revision: r.expected_task_revision } };
-  if (d.kind === 'grant' && key(r.client_request_key) && id(r.quote_id) && hash(r.accepted_disclosure_hash) && r.accepted_scope === EXECUTION_SCOPE && r.consent === true)
+  if (d.kind === 'grant' && key(r.client_request_key) && id(r.quote_id) && hash(r.accepted_disclosure_hash) && (r.accepted_scope === EXECUTION_SCOPE || r.accepted_scope === EMPIRICAL_EXECUTION_SCOPE) && r.consent === true)
     return { ...base, kind: 'grant', request: { client_request_key: r.client_request_key, expected_execution_revision: r.expected_execution_revision, quote_id: r.quote_id,
-      accepted_disclosure_hash: r.accepted_disclosure_hash, accepted_scope: EXECUTION_SCOPE, consent: true } };
+      accepted_disclosure_hash: r.accepted_disclosure_hash, accepted_scope: r.accepted_scope, consent: true } };
   if (d.kind === 'revoke' && id(d.grant_id) && key(r.client_action_key))
     return { ...base, kind: 'revoke', grant_id: d.grant_id, request: { client_action_key: r.client_action_key, expected_execution_revision: r.expected_execution_revision } };
   if (d.kind === 'action' && key(r.client_action_key) && ['resume','stop','reconcile'].includes(r.action))
@@ -33,7 +34,7 @@ function readIntent(raw: string | null): ExecutionIntent | null {
   throw new Error('invalid');
 }
 export function executionHasUnknownCall(execution: ExecutionDetail) {
-  return execution.status === 'needs_reconciliation' || execution.operations.some(o => o.status === 'submitting' || o.status === 'needs_reconciliation' || o.receipt_status === 'unconfirmed');
+  return empiricalExecutionBlocked(execution) || execution.status === 'needs_reconciliation' || execution.operations.some(o => o.status === 'submitting' || o.status === 'needs_reconciliation' || o.receipt_status === 'unconfirmed');
 }
 export class PlannerExecutionController {
   readonly storageKey = 'leontv.execution.pending.v1';
@@ -120,6 +121,7 @@ export class PlannerExecutionController {
     if (!b || b.mode !== 'normal') return '离线任务不能使用正式执行授权。';
     if (!e || this.state.loading || this.state.refreshing) return '请等待读取规划记录。';
     if (!p?.available || !p.policy || !e.policy_available) return '服务端传输关闭或核实策略不可用，不能授权。';
+    if (!executionPolicyMatchesProfile(e, p.policy)) return '当前策略与此任务冻结的执行模式不同，旧任务和授权不能升级；原待确认请求保持。';
     if (!q) return '先获取并核对服务端报价。';
     if (q.task_id !== b.id || q.snapshot_hash !== b.source.snapshot_hash || q.planner_task_revision !== b.revision) return '报价与当前任务版本不一致，请重新报价。';
     if (q.status !== 'valid' || !Number.isFinite(Date.parse(q.expires_at)) || Date.parse(q.expires_at) <= Date.now()) return '报价已过期或策略已变化，请重新报价。';
@@ -136,6 +138,7 @@ export class PlannerExecutionController {
   async requestQuote() {
     if (!this.available()) return;
     if (!this.state.policy?.available || !this.state.execution!.policy_available) { this.set({ error: '真实模型调用未开放或模型与费用策略尚未就绪，当前不能获取报价。' }); return; }
+    if (!this.state.policy?.policy || !executionPolicyMatchesProfile(this.state.execution!, this.state.policy.policy)) { this.set({ error: '当前策略与此任务冻结的执行模式不同，不能升级旧任务或授权；原请求保持。' }); return; }
     await this.submit({ ...this.intentBase(), kind: 'quote', request: { client_request_key: crypto.randomUUID(), expected_execution_revision: this.state.execution!.revision, expected_task_revision: this.state.binding!.revision } });
   }
   async grant() {
@@ -144,7 +147,7 @@ export class PlannerExecutionController {
     if (gate || !this.state.reviewed || this.state.reviewed !== this.reviewToken()) { this.set({ error: gate || '请先明确核对并同意当前报价与外发范围。' }); return; }
     const q = this.quote()!;
     await this.submit({ ...this.intentBase(), kind: 'grant', request: { client_request_key: crypto.randomUUID(), expected_execution_revision: this.state.execution!.revision,
-      quote_id: q.id, accepted_disclosure_hash: q.disclosure_hash, accepted_scope: EXECUTION_SCOPE, consent: true } });
+      quote_id: q.id, accepted_disclosure_hash: q.disclosure_hash, accepted_scope: q.policy.privacy_scope, consent: true } });
   }
   async revoke(grantId: string) {
     if (!this.available() || !this.state.execution!.grants.some(g => g.id === grantId && g.status === 'active')) return;
@@ -155,6 +158,7 @@ export class PlannerExecutionController {
     const e = this.state.execution!;
     if (!e.allowed_actions.includes(action)) { this.set({ error: '服务器当前不允许此执行动作。' }); return; }
     if (action === 'resume' && (!this.state.policy?.available || !e.policy_available || executionHasUnknownCall(e))) { this.set({ error: '模型配置不可用或仍有未确认调用，暂不能开始或继续规划。未决预占保持。' }); return; }
+    if (action === 'reconcile' && isEmpiricalExecution(e)) { this.set({ error: '平台费用仅由服务端核对，当前界面不能代替核费或释放风险预留。' }); return; }
     if (action === 'reconcile' && !e.operations.some(o => o.received_at !== null && o.receipt_status !== 'none')) { this.set({ error: '没有可处理的持久回执，不能对账或释放未决预占。' }); return; }
     await this.submit({ ...this.intentBase(), kind: 'action', request: { client_action_key: crypto.randomUUID(), expected_execution_revision: e.revision, action } });
   }

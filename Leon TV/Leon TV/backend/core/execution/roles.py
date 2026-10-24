@@ -8,8 +8,7 @@ import math
 from datetime import datetime
 
 from core.creator.store import CreatorError, digest
-from core.execution.policy import SCOPE as EXECUTION_SCOPE
-from core.execution.policy import ExecutionPolicy, cost, money, units
+from core.execution.policy import ExecutionPolicy, money, policy_hold, policy_scope, units
 from core.execution.transport import normalized, wire_for
 from core.planner.protocol import execute_tool
 from core.planner.recheck import validate_recheck_output
@@ -231,22 +230,35 @@ def validate_authority(op, task, quote, grant):
     require(op["account_id"] == task["account_id"] == policy["account_scope_id"])
     require(op["policy_hash"] == grant["policy_hash"] == policy["policy_hash"])
     require(op["snapshot_hash"] == task["snapshot_hash"] == grant["snapshot_hash"] == quote["snapshot_hash"])
-    require(grant["disclosure_hash"] == quote["disclosure_hash"] and grant["scope"] == EXECUTION_SCOPE)
+    require(grant["disclosure_hash"] == quote["disclosure_hash"] and grant["scope"] == policy_scope(policy))
     require(quote["role_workflow"] == grant["role_workflow"] == WORKFLOW)
     require(grant["role_scope_hash"] == digest(SCOPE) and same(quote["role_scope"], SCOPE))
-    require(type(op["hold_units"]) is int and op["hold_units"] == units(quote["per_call_hold_cny"]) == cost(policy["max_input_tokens"], policy["max_output_tokens"], policy))
+    require(type(op["hold_units"]) is int and op["hold_units"] == units(quote["per_call_hold_cny"]) == policy_hold(policy))
     pairs = {"operation_id": "id", "task_id": "task_id", "snapshot_hash": "snapshot_hash", "context_hash": "context_hash", "wire_hash": "wire_hash", "grant_id": "grant_id", "quote_id": "quote_id", "account_id": "account_id", "policy_hash": "policy_hash", "hold_units": "hold_units"}
     require(all(same(permit[key], op[field]) for key, field in pairs.items()))
-    require(permit["scope"] == EXECUTION_SCOPE and permit["model"] == policy["model"] and permit["endpoint"] == policy["endpoint"])
-    require(all(same(permit[key], policy[key]) for key in ("currency", "max_input_tokens", "max_output_tokens", "max_input_bytes", "max_output_bytes")))
-    require(type(permit["input_token_upper"]) is int and 0 < permit["input_token_upper"] <= policy["max_input_tokens"])
-    require(type(permit["bounder_ref"]) is str and bool(permit["bounder_ref"]))
+    require(permit["scope"] == policy_scope(policy) and permit["model"] == policy["model"] and permit["endpoint"] == policy["endpoint"])
+    require(all(same(permit[key], policy[key]) for key in ("currency", "max_output_tokens", "max_input_bytes", "max_output_bytes")))
+    if policy.get("kind") == "empirical_risk_v1":
+        from core.execution.empirical import validate_operation
+        validate_operation(op, task, quote, grant)
+    else:
+        require(permit["max_input_tokens"] == policy["max_input_tokens"])
+        require(type(permit["input_token_upper"]) is int and 0 < permit["input_token_upper"] <= policy["max_input_tokens"])
+        require(type(permit["bounder_ref"]) is str and bool(permit["bounder_ref"]))
     require(permit["grant_expires_at"] == grant["expires_at"] and permit["quote_expires_at"] == quote["expires_at"])
     issued, deadline = datetime.fromisoformat(permit["issued_at"]), datetime.fromisoformat(permit["deadline_at"])
     require(0 < (deadline - issued).total_seconds() <= policy["request_deadline_seconds"])
     require(deadline <= min(datetime.fromisoformat(policy["valid_until"]), datetime.fromisoformat(grant["expires_at"]), datetime.fromisoformat(quote["expires_at"])))
     require(issued >= datetime.fromisoformat(grant["created_at"]))
     require(len(op["wire"].encode("utf-8")) <= policy["max_input_bytes"])
+
+
+def checked_receipt(operation, policy):
+    if policy.get("kind") == "empirical_risk_v1":
+        from core.execution.empirical import decode
+        require(operation["empirical"]["fee_status"] == "matched" and operation["empirical"]["fee_evidence"] is not None)
+        return decode(operation["raw"], policy)
+    return normalized(operation["raw"], policy, operation["hold_units"], operation["permit"]["input_token_upper"])
 
 
 def validate(payload, previous=None):
@@ -274,10 +286,12 @@ def validate(payload, previous=None):
         if before is task and task_id not in changed_operation_tasks:
             continue
         json_tree(task)
-        require(task["environment"] in {"live", "synthetic_test"} and task["source_mode"] == "normal")
+        empirical = task.get("accounting_kind") == "empirical_risk_v1"
+        require(task["environment"] in ({"empirical_live", "synthetic_empirical_test"} if empirical else {"live", "synthetic_test"}) and task["source_mode"] == "normal")
         if before is not None:
             for name in ("id", "source", "snapshot_hash", "planner_task_revision", "account_id", "task_limit_units", "max_calls", "created_at", "role_workflow", "environment", "source_mode"):
                 require(same(task[name], before[name]))
+            require(task.get("accounting_kind") == before.get("accounting_kind") and task.get("parent_anchor_hash") == before.get("parent_anchor_hash"))
             require(same(task["events"][:len(before["events"])], before["events"]))
             transitions = {"not_authorized": {"not_authorized", "ready"}, "ready": {"ready", "queued", "blocked"},
                            "queued": {"queued", "running", "stopped", "blocked"},
@@ -286,6 +300,9 @@ def validate(payload, previous=None):
                            "blocked": {"blocked", "queued", "ready"},
                            "needs_reconciliation": {"needs_reconciliation", "stopped", "ready", "blocked", "plan_ready"},
                            "plan_ready": {"plan_ready"}}
+            if empirical:
+                transitions["needs_reconciliation"].update({"queued", "running"})
+                transitions["queued"].update({"plan_ready", "needs_reconciliation"})
             require(task["status"] in transitions[before["status"]])
         elif previous is not None:
             require(task["status"] == "not_authorized" and same(task["role_state"], initial()))
@@ -299,6 +316,15 @@ def validate(payload, previous=None):
                 reserved = operations[-1]
                 require(before["active_grant_id"] == reserved["grant_id"] and not any(op["status"] != "settled" for op in old_ops))
                 require(previous["grants"][reserved["grant_id"]]["revoked_at"] is None)
+                if empirical:
+                    from core.execution.store import totals
+                    grant = previous["grants"][reserved["grant_id"]]
+                    account = previous["accounts"][task["account_id"]]
+                    own, shared = totals(previous, task_id=task_id), totals(previous, account_id=task["account_id"])
+                    require(own["calls"] < min(grant["max_calls"], task["max_calls"], 6) and shared["calls"] < account["max_calls"])
+                    require(own["accounted"] + own["held"] + reserved["hold_units"] <= min(task["task_limit_units"], units(grant["total_limit_cny"])))
+                    require(shared["accounted"] + shared["held"] + reserved["hold_units"] <= account["limit_units"])
+                    require(not any(op["account_id"] == task["account_id"] and op.get("empirical", {}).get("fee_status") == "overrun" for op in previous["operations"].values()))
         scratch = {"id": task_id, "source": task["source"], "snapshot_hash": task["snapshot_hash"], "role_state": initial(),
                    "messages": [{"role": "system", "content": copy.deepcopy(SYSTEM)}, {"role": "user", "content": {"task_id": task_id, "source_snapshot_hash": task["snapshot_hash"]}}],
                    "read_source": False, "repair_count": 0, "plan": None, "status": "running", "reason": None}
@@ -314,7 +340,7 @@ def validate(payload, previous=None):
             json_tree(op)
             require(type(op["step"]) is int and op["step"] == index <= min(task["max_calls"], 6))
             if old is not None:
-                mutable = {"status", "raw", "normalized", "local_units", "tool_result", "transport_diagnostic"}
+                mutable = {"status", "raw", "normalized", "local_units", "tool_result", "transport_diagnostic"} | ({"empirical"} if empirical else set())
                 require(same({key: value for key, value in op.items() if key not in mutable}, {key: value for key, value in old.items() if key not in mutable}))
                 allowed = {"submitting": {"submitting", "received", "needs_reconciliation"}, "received": {"received", "settled", "needs_reconciliation"},
                            "needs_reconciliation": {"needs_reconciliation", "settled"}, "settled": {"settled"}}
@@ -323,6 +349,9 @@ def validate(payload, previous=None):
                     require(same(op["raw"], old["raw"]))
                 if old["normalized"] is not None:
                     require(same(op["normalized"], old["normalized"]))
+                if empirical:
+                    from core.execution.empirical import validate_transition
+                    validate_transition(op, old)
                 if old["status"] == "settled":
                     require(same(op, old))
                 if old["status"] == "needs_reconciliation" and old["raw"] is None:
@@ -330,11 +359,13 @@ def validate(payload, previous=None):
             if op["status"] == "submitting":
                 require(all(op[key] is None for key in ("raw", "normalized", "local_units", "tool_result")))
             elif op["status"] == "received":
-                require(op["raw"] is not None and all(op[key] is None for key in ("normalized", "local_units", "tool_result")))
+                require(op["raw"] is not None)
+                if not empirical:
+                    require(all(op[key] is None for key in ("normalized", "local_units", "tool_result")))
             if incremental and old is not None:
                 if old["status"] != "settled" and op["status"] == "settled":
                     quote = payload["quotes"][op["quote_id"]]
-                    receipt, reason = normalized(op["raw"], quote["policy"], op["hold_units"], op["permit"]["input_token_upper"])
+                    receipt, reason = checked_receipt(op, quote["policy"])
                     require(reason is None and same(receipt, op["normalized"]) and type(op["local_units"]) is int and op["local_units"] == receipt["local_units"])
                     require(same(complete(scratch, op, receipt["content"]), op["tool_result"]))
                 elif op["status"] == "needs_reconciliation":
@@ -359,12 +390,12 @@ def validate(payload, previous=None):
             require(op["wire"] == wire_for(op["context"], quote["policy"]))
             begin(scratch, op["role"], binding)
             if op["status"] == "settled":
-                receipt, reason = normalized(op["raw"], quote["policy"], op["hold_units"], op["permit"]["input_token_upper"])
+                receipt, reason = checked_receipt(op, quote["policy"])
                 require(reason is None and same(receipt, op["normalized"]) and type(op["local_units"]) is int and op["local_units"] == receipt["local_units"])
                 feedback = complete(scratch, op, receipt["content"])
                 require(same(feedback, op["tool_result"]))
             else:
-                require(index == len(operations) and op["local_units"] is None and op["tool_result"] is None)
+                require(index == len(operations) and (empirical or op["local_units"] is None) and op["tool_result"] is None)
                 if op["status"] == "needs_reconciliation":
                     unknown(scratch, op["role"])
         require(same(task["role_state"], scratch["role_state"]) and same(task["messages"], scratch["messages"]))
@@ -385,13 +416,19 @@ def validate(payload, previous=None):
                 continue
             json_tree(quote)
             require(quote["policy"]["role_workflow"] == quote["role_workflow"] == WORKFLOW and same(quote["role_scope"], SCOPE))
-            require(("synthetic_test" if quote["policy"]["validation_only"] else "live") == task["environment"])
+            empirical = quote["policy"].get("kind") == "empirical_risk_v1"
+            require((("synthetic_empirical_test" if quote["policy"]["validation_only"] else "empirical_live") if empirical else ("synthetic_test" if quote["policy"]["validation_only"] else "live")) == task["environment"])
             policy = quote["policy"]
-            checked = ExecutionPolicy.model_validate({key: value for key, value in policy.items() if key != "policy_hash"}).frozen()
+            if empirical:
+                from core.execution.empirical import EmpiricalExecutionPolicy
+                model = EmpiricalExecutionPolicy
+            else:
+                model = ExecutionPolicy
+            checked = model.model_validate({key: value for key, value in policy.items() if key != "policy_hash"}).frozen()
             require(same(checked, policy))
             require(quote["snapshot_hash"] == task["snapshot_hash"] and quote["planner_task_revision"] == task["planner_task_revision"])
             require(quote["expires_at"] == policy["valid_until"] and datetime.fromisoformat(quote["created_at"]) < datetime.fromisoformat(quote["expires_at"]))
-            require(quote["per_call_hold_cny"] == money(cost(policy["max_input_tokens"], policy["max_output_tokens"], policy)))
+            require(quote["per_call_hold_cny"] == money(policy_hold(policy)))
             require(type(quote["max_calls"]) is int and quote["max_calls"] == min(task["max_calls"], policy["max_calls"]))
             require(quote["total_limit_cny"] == money(min(task["task_limit_units"], units(policy["task_limit_cny"]))))
             account = payload["accounts"][task["account_id"]]
@@ -412,7 +449,7 @@ def validate(payload, previous=None):
             task = tasks[grant["task_id"]]
             require(grant["task_id"] == quote["task_id"] and grant["snapshot_hash"] == task["snapshot_hash"] == quote["snapshot_hash"])
             require(grant["policy_hash"] == quote["policy"]["policy_hash"] and grant["disclosure_hash"] == quote["disclosure_hash"])
-            require(grant["scope"] == EXECUTION_SCOPE and grant["total_limit_cny"] == quote["total_limit_cny"])
+            require(grant["scope"] == policy_scope(quote["policy"]) and grant["total_limit_cny"] == quote["total_limit_cny"])
             require(type(grant["max_calls"]) is int and grant["max_calls"] == quote["max_calls"] and grant["expires_at"] == quote["expires_at"])
             require(datetime.fromisoformat(quote["created_at"]) <= datetime.fromisoformat(grant["created_at"]) < datetime.fromisoformat(grant["expires_at"]))
             if previous and grant_id in previous["grants"]:
@@ -422,3 +459,5 @@ def validate(payload, previous=None):
     if previous and any(task.get("role_workflow") == WORKFLOW for task in tasks.values()):
         for account_id, account in previous["accounts"].items():
             require(account is payload["accounts"][account_id] or same(account, payload["accounts"][account_id]))
+    from core.execution.empirical import validate_payload
+    validate_payload(payload, previous)
