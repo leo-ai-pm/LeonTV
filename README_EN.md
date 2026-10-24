@@ -21,6 +21,8 @@ LeonTV is a locally hosted AI video workspace evolving toward an **Agent Harness
 
 The application provides a six-stage creative workflow, a node canvas, individual generation tools and specialized pipelines. Real image generation and a two-model video trial have been completed. **The first Harness runtime foundation is integrated with Studio, formal APIs and private durable storage**, including idempotent creation, lookup, version and quality gates, stop/resume, original-operation reconciliation and test final review. The Screening Room also connects saved brief revisions to durable planning tasks and a bounded tool-feedback loop. Normal tasks wait for authorization; a separate offline entry substitutes synthetic model responses while exercising the same loop. Controlled trials have executed real planning, independent text review and first-frame generation; integrating these roles and automatic creative repair into formal product runs remains in development. See the [architecture guide](./docs/ARCHITECTURE.md).
 
+Planner, Reviewer, Repairer and Rechecker now share the existing controlled execution runtime, explicit quote consent, cumulative account limits and durable receipts. The new workflow is opt-in and cannot expand an existing task or grant. Synthetic transport checks cover the integrated path; production remains disabled, and real four-role collaboration, media quality and human acceptance are pending. See the [execution contract](./docs/PLANNER-ROLE-EXECUTION-API.md).
+
 ## Video demos
 
 These are real API-generated outputs using the same scene, reference image and first-attempt prompt. The motion preview shows MiniMax H3 on the left and Seedance 2.5 on the right. Full files include their generated audio.
