@@ -1,5 +1,7 @@
 # 图片历史校验与故障阶段验收 · D35
 
+后续进展：[D36续接预审](./IMAGE-CONTINUATION-PREFLIGHT-VALIDATION.md)已完成；下文保留D35当轮结果，原有效期和历史未知未改。
+
 2026-10-25，代码`74cb4c7`。[接口与边界](./RUNTIME-VALIDATION-PERF-API.md) · [上一轮真实结果](./TASK-FEE-CONTINUATION-VALIDATION.md)。
 
 本轮减少了重复历史读取及图片请求的重复纯重建，补充本次采集失败时的固定阶段观察。原第二镜仍为unknown，原policy和permit已到期，未续期、重发或新增交付。修复经过历史数据只读回放和模拟采集验证；有效授权下的真实reserve→prepare耗时仍待验收。

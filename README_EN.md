@@ -29,6 +29,8 @@ The [D31 native asset path](./docs/ASSET-DESIGN-VALIDATION.md) adds a separately
 
 [D35 validation reuse and failure stages](./docs/RUNTIME-VALIDATION-PERF-VALIDATION.md) reduce repeated pure reconstruction within each fresh journal read. The same real history rebuilds four distinct descriptors four times instead of 665; all 29 media validations remain, with guarded read samples improving from about 6.9 to 3.9 seconds. Independent authority decisions and checks on both sides of credential loading remain. New failures can retain a fixed observer stage; the original second image stays unknown with no historical diagnostic. All 2501 tests and 73 subtests passed. No new real generation occurred; versioned unknown/expiry continuation and valid-permit dispatch acceptance remain next.
 
+[D36 image continuation preflight](./docs/IMAGE-CONTINUATION-PREFLIGHT-VALIDATION.md) builds a freshly verifiable, read-only proposal bound to the expired scope, retained unknown, current journal and actual code. Two original call slots remain for three undelivered jobs; the proposal requests one additional call and CNY1 of retained risk within the original CNY100 budget. This preflight made no additional allocation or paid request. Export, fresh verification and replay passed against the original history without changing protected files. Versioned activation, a separately identified replacement attempt and real dispatch remain next.
+
 ## Video demos
 
 These are real API-generated outputs using the same scene, reference image and first-attempt prompt. The motion preview shows MiniMax H3 on the left and Seedance 2.5 on the right. Full files include their generated audio.

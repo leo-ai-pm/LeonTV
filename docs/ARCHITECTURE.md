@@ -22,9 +22,11 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 内部参考图转换 | 独立报价绑定转换profile／encoder，原图与衍生证明并存；JPEG需显式允许 | 技术转换即视觉通过、自动裁剪或任意压缩 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
-D33的 `image_fee_inspection` 是独立只读操作端，复用历史control与原journal重建，不构造执行runtime或费用观察器。它将POST身份、导出、精确候选、既有费用、查询和交付分列；不会写claim或续权。其原直接请求身份诊断合同继续保留。D34另增加原生task quota证据及task/request全局去重，并通过原journal认领首镜¥0.04；独立代码续接沿用原scope/grant/有效期。第二镜续行停为unknown，未取得新交付；只读基准强烈指向重复历史校验耗尽时限，确切异常阶段仍缺证。同次校验内的历史重建复用及派发前故障证据是下一优先项。[D34合同与实际边界](./TASK-FEE-CONTINUATION-VALIDATION.md)。[接口](./IMAGE-FEE-INSPECTION-API.md) · [真实只读验证](./IMAGE-FEE-INSPECTION-VALIDATION.md)。
+D33的 `image_fee_inspection` 是独立只读操作端，复用历史control与原journal重建，不构造执行runtime或费用观察器。它将POST身份、导出、精确候选、既有费用、查询和交付分列；不会写claim或续权。其原直接请求身份诊断合同继续保留。D34另增加原生task quota证据及task/request全局去重，并通过原journal认领首镜¥0.04；独立代码续接沿用原scope/grant/有效期。第二镜续行停为unknown，未取得新交付；只读基准强烈指向重复历史校验耗尽时限，确切异常阶段仍缺证。该历史问题的后续修复见下文D35，续接预审见D36。[D34合同与实际边界](./TASK-FEE-CONTINUATION-VALIDATION.md)。[接口](./IMAGE-FEE-INSPECTION-API.md) · [真实只读验证](./IMAGE-FEE-INSPECTION-VALIDATION.md)。
 
 D35在每次完整journal重建内复用严格完整输入的纯描述符证明，不缓存权限或省略逐帧业务校验；续接内部的纯文件采集复用当次已完成的权限判断，各独立调用和Key前后仍重新检查。新采集异常可封存私有固定阶段观察，由原status只读验证投影；该观察不表示确切异常原因、未发HTTP、零费用或重试许可，历史unknown不回填。原到期范围、消耗和风险保留。[D35接口与验收](./RUNTIME-VALIDATION-PERF-VALIDATION.md)。
+
+D36的 `image_continuation_parent/proposal/operator` 只做可核验的续接预审：重建原历史、精确费用／交付、唯一unknown、实际代码与父分配，派生后续窗口及新替代版本，并在输出前复查漂移。原329文件未改，旧runtime／账本仍拒绝到期范围；没有新派发通路。显式私有父文件仅为观察，未来激活必须由服务器固定live来源、确认精确旧45条加唯一新分配，并在原journal中绑定授权版本。当前原风险81.37／53次保持，82.37／54次只为方案值。[D36合同与验收](./IMAGE-CONTINUATION-PREFLIGHT-VALIDATION.md)。
 
 ## 现役创作链路
 
