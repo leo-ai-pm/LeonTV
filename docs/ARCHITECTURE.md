@@ -22,7 +22,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 内部参考图转换 | 独立报价绑定转换profile／encoder，原图与衍生证明并存；JPEG需显式允许 | 技术转换即视觉通过、自动裁剪或任意压缩 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
-D33的 `image_fee_inspection` 是独立只读操作端，复用历史control与原journal重建，不构造执行runtime或费用观察器。它将POST身份、导出、精确候选、既有费用、查询和交付分列；不会写claim或续权。平台原生任务quota已取得独立观察，task/request两种费用身份的正式认领及去重合同仍待接入。[接口](./IMAGE-FEE-INSPECTION-API.md) · [真实只读验证](./IMAGE-FEE-INSPECTION-VALIDATION.md)。
+D33的 `image_fee_inspection` 是独立只读操作端，复用历史control与原journal重建，不构造执行runtime或费用观察器。它将POST身份、导出、精确候选、既有费用、查询和交付分列；不会写claim或续权。其原直接请求身份诊断合同继续保留。D34另增加原生task quota证据及task/request全局去重，并通过原journal认领首镜¥0.04；独立代码续接沿用原scope/grant/有效期。第二镜续行停为unknown，未取得新交付；只读基准强烈指向重复历史校验耗尽时限，确切异常阶段仍缺证。同次校验内的历史重建复用及派发前故障证据是下一优先项。[D34合同与实际边界](./TASK-FEE-CONTINUATION-VALIDATION.md)。[接口](./IMAGE-FEE-INSPECTION-API.md) · [真实只读验证](./IMAGE-FEE-INSPECTION-VALIDATION.md)。
 
 ## 现役创作链路
 
