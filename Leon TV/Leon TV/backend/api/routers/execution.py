@@ -131,6 +131,13 @@ def asset_handoff(task_id: TaskId, runtime=Depends(private_inspection)):
     return build_handoff(runtime, task_id)
 
 
+@router.get("/tasks/{task_id}/execution/media")
+def media_status(task_id: TaskId, runtime=Depends(private_inspection)):
+    from core.execution.media_runtime import MediaExecution
+    media = getattr(runtime, "media", None)
+    return (media if media is not None else MediaExecution(runtime)).get(task_id)
+
+
 @router.get("/execution/policy")
 def policy(runtime=Depends(private_execution)):
     return runtime.policy_view()

@@ -245,6 +245,12 @@ class EmpiricalTransport:
         try:
             require(type(self.settings) is ReceiptCaptureSettings and guarded(self.anchor_guard, self.anchor))
             payload = self.store.read_only()
+            from core.execution.media_ledger import (
+                account_halted,
+                has_pending_fees,
+                has_pending_unknown,
+            )
+            require(not account_halted(payload, operation["account_id"]) and not has_pending_unknown(payload, operation["account_id"]) and not has_pending_fees(payload, operation["account_id"]))
             require(digest(payload["operations"][operation["id"]]) == digest(operation) and operation["status"] == "submitting")
             require(digest(payload["quotes"][operation["quote_id"]]["policy"]) == digest(policy))
             require(operation["wire"] == wire_for(operation["context"], policy) and len(operation["wire"].encode("utf-8")) <= policy["max_input_bytes"])

@@ -14,6 +14,14 @@ from core.planner.protocol import parse_json
 from core.planner.store import check_source
 
 EMPTY = {"tasks": {}, "quotes": {}, "grants": {}, "operations": {}, "keys": {}, "accounts": {}}
+NAMESPACES = set(EMPTY) | {"media"}
+MAX_STATE_BYTES = 64 * 1048576
+
+
+def validate_media(payload, previous=None):
+    if "media" in payload or previous is not None and "media" in previous:
+        from core.execution.media_ledger import validate
+        validate(payload, previous)
 
 
 def has_roles(payload):
@@ -51,7 +59,7 @@ def totals(payload, *, task_id=None, account_id=None):
 
 
 def validate_payload(payload):
-    require(isinstance(payload, dict) and set(payload) == set(EMPTY) and all(isinstance(value, dict) for value in payload.values()))
+    require(isinstance(payload, dict) and set(EMPTY) <= set(payload) <= NAMESPACES and all(isinstance(value, dict) for value in payload.values()))
     require(len(payload["accounts"]) <= 1)
     for task_id, task in payload["tasks"].items():
         require(bool(ID_RE.fullmatch(task_id)) and task["id"] == task_id)
@@ -106,6 +114,7 @@ def validate_payload(payload):
         require(receipt["request_hash"] == digest({"key": key, **receipt["request"]}))
         require(receipt["task_id"] in payload["tasks"] and receipt["request"]["task_id"] == receipt["task_id"])
     validate_roles(payload)
+    validate_media(payload)
 
 
 def validate_state(state):
@@ -116,12 +125,15 @@ def validate_state(state):
     for revision, frame in enumerate(state["frames"], 1):
         require(set(frame) == {"revision", "saved_at", "previous_hash", "hash", "delta"} and type(frame["revision"]) is int and frame["revision"] == revision)
         require(frame["previous_hash"] == previous and frame["hash"] == digest({key: value for key, value in frame.items() if key != "hash"}))
-        require(isinstance(frame["delta"], dict) and set(frame["delta"]) <= set(EMPTY))
+        require(isinstance(frame["delta"], dict) and set(frame["delta"]) <= NAMESPACES)
         before = {namespace: dict(records) for namespace, records in payload.items()}
         for namespace, records in frame["delta"].items():
             require(isinstance(records, dict))
+            if namespace == "media" and namespace not in payload:
+                payload[namespace] = {}
             payload[namespace].update(copy.deepcopy(records))
         validate_roles(payload, before)
+        validate_media(payload, before)
         previous = frame["hash"]
     require(state["head_hash"] == previous)
     validate_payload(payload)
@@ -137,7 +149,7 @@ class ExecutionStore(CreatorBriefStore):
         if not path.exists():
             return copy.deepcopy(EMPTY)
         try:
-            return validate_state(read_json(path, maximum=64 * 1048576))
+            return validate_state(read_json(path, maximum=MAX_STATE_BYTES))
         except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, OSError, RecursionError):
             raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
 
@@ -155,16 +167,17 @@ class ExecutionStore(CreatorBriefStore):
                 except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, RecursionError):
                     raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
                 original = copy.deepcopy(payload)
-                original_digest = digest(original) if has_roles(original) else None
+                original_digest = digest(original) if has_roles(original) or "media" in original else None
                 yield payload
                 try:
-                    profiled = has_roles(payload) or has_roles(original)
+                    profiled = has_roles(payload) or has_roles(original) or "media" in payload or "media" in original
                     if profiled:
                         from core.execution.roles import json_tree
                         json_tree(payload)
                     changed_payload = digest(payload) != (original_digest or digest(original)) if profiled else payload != original
                     if changed_payload and profiled:
                         validate_roles(payload, original)
+                        validate_media(payload, original)
                 except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, RecursionError):
                     raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
                 if changed_payload or not path.exists():
@@ -172,20 +185,24 @@ class ExecutionStore(CreatorBriefStore):
                         validate_payload(payload)
                     except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, RecursionError):
                         raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
-                    require(all(set(original[namespace]) <= set(payload[namespace]) for namespace in EMPTY))
+                    require(all(namespace in payload and set(original[namespace]) <= set(payload[namespace]) for namespace in original))
                     delta = {}
                     for namespace, records in payload.items():
-                        changed = {key: copy.deepcopy(value) for key, value in records.items() if key not in original[namespace] or (digest(original[namespace][key]) != digest(value) if profiled else original[namespace][key] != value)}
+                        old_records = original.get(namespace, {})
+                        changed = {key: copy.deepcopy(value) for key, value in records.items() if key not in old_records or (digest(old_records[key]) != digest(value) if profiled else old_records[key] != value)}
                         if changed:
                             delta[namespace] = changed
                     frame = {"revision": len(state["frames"]) + 1, "saved_at": utc_now(), "previous_hash": state["head_hash"], "delta": delta}
                     frame["hash"] = digest(frame)
                     state["frames"].append(frame)
                     state["head_revision"], state["head_hash"] = frame["revision"], frame["hash"]
+                    serialized = json.dumps(state, ensure_ascii=False, allow_nan=False).encode("utf-8")
+                    if len(serialized) > MAX_STATE_BYTES:
+                        raise CreatorError("EXECUTION_STORAGE_LIMIT", "Execution journal capacity is exhausted", 409)
                     fd, temporary = tempfile.mkstemp(prefix=".execution-", dir=self.root)
                     try:
-                        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                            json.dump(state, stream, ensure_ascii=False, allow_nan=False)
+                        with os.fdopen(fd, "wb") as stream:
+                            stream.write(serialized)
                             stream.flush()
                             os.fsync(stream.fileno())
                         os.replace(temporary, path)

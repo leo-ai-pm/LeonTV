@@ -35,6 +35,12 @@ class CapturedTransport(ControlledTransport):
         try:
             self._preflight(operation, policy)
             payload = self.execution_store.read_only()
+            from core.execution.media_ledger import (
+                account_halted,
+                has_pending_fees,
+                has_pending_unknown,
+            )
+            require(not account_halted(payload, operation["account_id"]) and not has_pending_unknown(payload, operation["account_id"]) and not has_pending_fees(payload, operation["account_id"]))
             persisted = payload["operations"][operation["id"]]
             require(digest(persisted) == digest(operation) and persisted["status"] == "submitting")
             require(payload["quotes"][operation["quote_id"]]["policy"] == policy)

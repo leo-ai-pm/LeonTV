@@ -155,6 +155,11 @@ class ExecutionRuntime:
             return reason
         if self.account_risk_overrun(payload, task):
             return "EMPIRICAL_RISK_OVERRUN"
+        from core.execution.media_ledger import has_pending_fees, has_pending_unknown
+        if has_pending_unknown(payload, task["account_id"]):
+            return "RESPONSE_UNCONFIRMED"
+        if has_pending_fees(payload, task["account_id"]):
+            return "PLATFORM_FEE_REQUIRED"
         if self.pending(payload, task) is not None:
             return "RESPONSE_UNCONFIRMED"
         if "role_workflow" in task:
@@ -189,7 +194,8 @@ class ExecutionRuntime:
 
     @staticmethod
     def account_risk_overrun(payload, task):
-        return "accounting_kind" in task and any(op["account_id"] == task["account_id"] and op.get("empirical", {}).get("fee_status") == "overrun" for op in payload["operations"].values())
+        from core.execution.media_ledger import account_halted
+        return account_halted(payload, task["account_id"]) or "accounting_kind" in task and any(op["account_id"] == task["account_id"] and op.get("empirical", {}).get("fee_status") == "overrun" for op in payload["operations"].values())
 
     def detail(self, payload, task_id, base=None):
         task = payload["tasks"].get(task_id)
@@ -486,8 +492,9 @@ class ExecutionRuntime:
         return True
 
     def empirical_resumable(self, payload, task, operation):
+        from core.execution.media_ledger import has_pending_fees, has_pending_unknown
         value = operation["empirical"]
-        if value["fee_status"] != "matched" or value["receipt_classification"] != "complete" or self.availability(payload) or self.account_risk_overrun(payload, task):
+        if value["fee_status"] != "matched" or value["receipt_classification"] != "complete" or self.availability(payload) or self.account_risk_overrun(payload, task) or has_pending_unknown(payload, task["account_id"]) or has_pending_fees(payload, task["account_id"]):
             return False
         grant = payload["grants"].get(task["active_grant_id"])
         return bool(grant and self.grant_status(grant) == "active" and self.quote_status(payload["quotes"][grant["quote_id"]]) == "valid")
@@ -557,6 +564,9 @@ class ExecutionRuntime:
                     if digest(old) != digest(record):
                         raise CreatorError("FEE_EVIDENCE_CONFLICT", "The operation already has immutable fee evidence", 409)
                     return {"execution": self.detail(payload, task_id), "replayed": True}
+                from core.execution.media_ledger import fee_claimed
+                if fee_claimed(payload, record["platform_log_id"], operation_id):
+                    raise CreatorError("FEE_EVIDENCE_CONFLICT", "Platform evidence already belongs to another operation", 409)
                 if any(op.get("empirical", {}).get("fee_evidence", {}).get("platform_log_id") == record["platform_log_id"]
                        for op in payload["operations"].values() if op.get("empirical", {}).get("fee_evidence") is not None):
                     raise CreatorError("FEE_EVIDENCE_CONFLICT", "Platform evidence already belongs to another operation", 409)
@@ -713,6 +723,14 @@ class ExecutionRuntime:
                     payload["operations"][operation_id] = operation
                     self.bump(task, "operation_reserved", operation_id=operation_id)
                 try:
+                    from core.execution.media_ledger import (
+                        account_halted,
+                        has_pending_fees,
+                        has_pending_unknown,
+                    )
+                    dispatch_snapshot = self.store.read_only()
+                    if account_halted(dispatch_snapshot, operation["account_id"]) or has_pending_unknown(dispatch_snapshot, operation["account_id"]) or has_pending_fees(dispatch_snapshot, operation["account_id"]):
+                        raise ResponseUnconfirmed("PERMIT_REJECTED")
                     if empirical:
                         from core.execution.empirical import EmpiricalTransport
                         transport = EmpiricalTransport(self.store, self.budget_anchor, self.anchor_guard, self.receipt_capture)
