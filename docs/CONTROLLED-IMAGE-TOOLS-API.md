@@ -2,6 +2,8 @@
 
 为后续素材执行新增独立媒体策略、图片许可、原始提交／查询回执、文件交付检查与费用候选适配，复用既有 `ReceiptStore`、`capture_once` 和 detached worker。没有新增调度器、金融账本或生成 HTTP 入口；原文本任务、四角色、账户、grant 与六个 journal namespace 保持原合同。[验收](./CONTROLLED-IMAGE-TOOLS-VALIDATION.md)。
 
+后续接线：[D30统一媒体账本](./MEDIA-EXECUTION-API.md)已通过原ExecutionStore的显式媒体扩展提供真实记录核验、独立授权及费用claim。下述D29纯组件合同保持原样；生产默认仍关闭，自动素材角色尚未接入。
+
 ## 权限与请求
 
 `core/execution/image_policy.py` 提供 `MediaBudgetAnchor`、`ImageToolPolicy`、`ImageToolPermit`、`FrozenImageRequest` 及 `build_image_submit`／`build_image_query`。
