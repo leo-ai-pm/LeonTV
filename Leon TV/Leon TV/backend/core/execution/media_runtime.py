@@ -99,11 +99,25 @@ class MediaExecution:
         require(permitted is True and digest(candidate) == original, "MEDIA_AUTHORITY_REJECTED")
 
     def _scope(self, payload, task_id):
-        context, handoff = native_context(payload, task_id)
         require(self.policy is not None and self.anchor is not None and self.manifest is not None, "MEDIA_DISABLED")
         policy = ImageToolPolicy.model_validate({k: v for k, v in self.policy.items() if k != "policy_hash"}).frozen()
         anchor = MediaBudgetAnchor.model_validate({k: v for k, v in self.anchor.items() if k != "budget_anchor_hash"}).frozen()
         require(digest(policy) == digest(self.policy) and digest(anchor) == digest(self.anchor), "MEDIA_POLICY_STALE")
+        frozen = [scope for scope in records(payload, "scope") if scope["task_id"] == task_id
+                  and digest(scope["policy"]) == digest(policy) and digest(scope["anchor"]) == digest(anchor)
+                  and digest(scope["manifest"]) == digest(self.manifest)
+                  and digest(scope.get("reference_profile")) == digest(self.reference_profile)
+                  and digest(scope.get("manifest_origin")) == digest(self.manifest_origin)]
+        require(len(frozen) <= 1, "MEDIA_CONFLICT")
+        if frozen:
+            from core.execution.media_ledger import _stable_handoff
+            context, handoff = native_context(payload, task_id, historical=True)
+            existing = frozen[0]
+            require(digest(existing["asset_input"]) == digest(context)
+                    and digest(_stable_handoff(existing["handoff"])) == digest(_stable_handoff(handoff)), "MEDIA_POLICY_STALE")
+            self._authority(existing)
+            return existing
+        context, handoff = native_context(payload, task_id)
         require(policy["validation_only"] is (handoff["evidence_kind"] == "synthetic"), "MEDIA_ENVIRONMENT_MISMATCH")
         account = payload["accounts"][payload["tasks"][task_id]["account_id"]]
         identity = {"task_id": task_id, "policy_hash": policy["policy_hash"], "budget_anchor_hash": anchor["budget_anchor_hash"],
