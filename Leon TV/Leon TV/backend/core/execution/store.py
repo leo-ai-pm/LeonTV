@@ -143,6 +143,10 @@ def validate_state(state):
         previous = frame["hash"]
     require(state["head_hash"] == previous)
     validate_payload(payload)
+    if any(record["kind"] in {"code_continuation_quote", "code_continuation_activation"}
+           for record in payload.get("media", {}).values()):
+        from core.execution.image_code_continuation import validate_history
+        validate_history(state, payload)
     return payload
 
 

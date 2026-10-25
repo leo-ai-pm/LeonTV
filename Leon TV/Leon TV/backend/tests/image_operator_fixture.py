@@ -117,7 +117,7 @@ def images_case(asset_control_case, *, mode="enabled", profile=None, fault=None,
     save()
     counter = root / "image-http.jsonl"
     settings = ReceiptCaptureSettings(observation_wait_seconds=5, worker_factory="image_tool_fixture:make_transport",
-        worker_options={"counter": str(counter), "fault": fault})
+        worker_options={"counter": str(counter), "fault": fault, "unique_tasks": True})
     case = SimpleNamespace(path=path, backend=backend, root=root, data=data, anchor=anchor, policy=policy, request=request,
         selected=selected, ledger=ledger, begin=begin, source=asset_case.source, manifest=ready["manifest"], origin=ready["origin"],
         context=context, handoff=handoff, asset_case=asset_case, asset_operation=operation, asset_received=received,

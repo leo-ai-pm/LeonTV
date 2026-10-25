@@ -63,11 +63,16 @@ def make_transport(options):
             return httpx.Response(302, headers={"location": "https://synthetic.invalid/forbidden-second-request"})
         task_id = "synthetic-image-task-1"
         if request.method == "POST":
+            if options.get("unique_tasks"):
+                task_id = "synthetic-image-task-" + request.headers["x-client-operation-id"]
             assert request.url.path == "/v1/images/generations/async"
             assert json.loads(request.content)["model"] == "gpt-image-2-all"
             body = {"code": 0, "data": {"id": task_id}}
         else:
             assert request.method == "GET" and request.content == b""
+            if options.get("unique_tasks"):
+                task_id = request.url.path.removeprefix("/v1/tasks/")
+                assert task_id.startswith("synthetic-image-task-")
             assert request.url.path == "/v1/tasks/" + task_id
             body = {"code": 0, "data": {"id": "different-image-task" if fault == "wrong_task" else task_id,
                     "status": options.get("query_status", "completed"),

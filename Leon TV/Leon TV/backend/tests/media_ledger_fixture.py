@@ -61,7 +61,7 @@ def media_case(empirical_env, *, fault=None, legacy=False, **worker_options):
         guard["calls"] += 1
         return guard["allowed"] and digest(scope["policy"]) == digest(policy.frozen()) and digest(scope["anchor"]) == digest(anchor.frozen())
     settings = ReceiptCaptureSettings(observation_wait_seconds=5, worker_factory="media_tool_fixture:make_transport",
-        worker_options={"counter": str(counter), "fault": fault, **worker_options})
+        worker_options={"counter": str(counter), "fault": fault, "unique_tasks": True, **worker_options})
     source = {**SOURCE, "account_namespace": account["id"]}
     media = MediaExecution(current.runtime, policy=policy, budget_anchor=anchor, manifest=manifest, authority_guard=authority,
         fee_source=source, receipt_capture=settings)

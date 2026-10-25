@@ -18,6 +18,7 @@ from core.execution.image_policy import (
 from core.execution.image_receipts import decode_query, decode_submit, verify_delivery
 from core.execution.media_ledger import (
     account_halted,
+    candidate_claimed,
     disclosure_for,
     fee_claimed,
     has_pending_fees,
@@ -386,7 +387,7 @@ class MediaExecution:
                 old = payload["media"]["fee:" + operation["fee_id"]]
                 require(digest(old["candidate"]) == digest(candidate), "FEE_EVIDENCE_CONFLICT")
                 return {"operation": copy.deepcopy(operation), "replayed": True}
-            require(not fee_claimed(payload, fee_id, operation_id), "FEE_EVIDENCE_CONFLICT")
+            require(not candidate_claimed(payload, candidate, operation_id), "FEE_EVIDENCE_CONFLICT")
             require(not unresolved_text_claims(payload), "MEDIA_LEGACY_FEE_BRIDGE_REQUIRED")
             export_base64 = base64.b64encode(export_bytes).decode()
             self._put(payload, self._record("fee", fee_id, task_id, scope["id"], operation_id=operation_id, candidate=candidate, export_base64=export_base64))
@@ -394,6 +395,12 @@ class MediaExecution:
                 evidence_hash=digest(candidate), export_base64=export_base64, fee_source=scope["fee_source"]))
             operation["fee_id"] = fee_id
             return {"operation": copy.deepcopy(operation), "replayed": False}
+
+    def observe_task_fee(self, task_id, operation_id, task_export_bytes, account_export_bytes, task_source, *, observed_at):
+        """Import an exact native-task quota fact without loading a credential."""
+        from core.execution.media_fee_import import import_task_fee
+        return import_task_fee(self.store, task_id, operation_id, task_export_bytes, account_export_bytes,
+            task_source, observed_at=observed_at)
 
     def register_text_claim(self, operation_id, export_bytes):
         payload = self.store.read_only()

@@ -76,6 +76,10 @@ def _validate_fee_owners(payload):
             if record["kind"] == "claim":
                 owner = "text" if record.get("owner") == "text" else namespace
                 claim(record["id"], (owner, record["operation_id"]))
+            elif namespace == "media" and record["kind"] == "fee":
+                from core.execution.task_image_fees import claim_keys
+                for key in claim_keys(record["candidate"]):
+                    claim(key, (namespace, record["operation_id"]))
 
 
 def _validate_paid_intents(payload, previous):

@@ -219,6 +219,27 @@ def execute(control, command, args, *, session_factory=build_image_session):
         return _status(control, args.operation)
     require(control.document.mode == "enabled")
     control.verify_authority(for_dispatch=command in NETWORK_COMMANDS)
+    if command == "task-fees-import":
+        from core.execution.control import _json
+        from core.execution.media_fee_import import import_task_fee
+        from core.execution.task_image_fees import checked_task_source
+        source = checked_task_source(_json(_import_bytes(control, args.source, 16384)))
+        task_blob = _import_bytes(control, args.export, 8 * 1048576)
+        account_blob = _import_bytes(control, args.account_export, 8 * 1048576)
+        store = ExecutionStore(control.roots["execution"])
+        payload = store.read_only()
+        operation = _admit_record(control, payload, "operation", args.operation)
+        observed_at = utc_now()
+        if operation["fee_id"] is not None:
+            candidate = payload["media"]["fee:" + operation["fee_id"]]["candidate"]
+            require(candidate["kind"] == "image_task_fee_candidate_v1")
+            observed_at = candidate["observed_at"]
+        result = import_task_fee(store, task_id, args.operation, task_blob, account_blob, source, observed_at=observed_at)
+        current = store.read_only()
+        fee = current["media"]["fee:" + result["operation"]["fee_id"]]["candidate"]
+        return {"operation": _resource(result["operation"]), "replayed": result["replayed"],
+            "observation_kind": fee["observation_kind"], "platform_observed_cny": fee["platform_fee_cny"],
+            "provider_bill_confirmed": False, "risk_released": False, "automatic_followup_calls": 0}
     with session_factory(control) as session:
         media = session.media
         payload = session.runtime.store.read_only()
@@ -295,10 +316,12 @@ class Parser(argparse.ArgumentParser):
 def parser():
     result = Parser(description="Explicit native image operation; no automatic follow-ups")
     result.add_argument("--control")
+    result.add_argument("--continuation")
     subs = result.add_subparsers(dest="command", required=True)
-    for name in ("status", "quote", "grant", "reserve", "start", "query", "recover", "fees-import", "legacy-fees-import", "delivery-import", "revoke"):
+    for name in ("status", "quote", "grant", "reserve", "start", "query", "recover", "fees-import", "task-fees-import", "legacy-fees-import", "delivery-import", "revoke"):
         command = subs.add_parser(name)
         command.add_argument("--control", default=argparse.SUPPRESS)
+        command.add_argument("--continuation", default=argparse.SUPPRESS)
         command.add_argument("--task")
         if name in {"quote", "grant", "reserve", "query"}:
             command.add_argument("--key", required=True)
@@ -310,10 +333,14 @@ def parser():
             command.add_argument("--grant", required=True)
         if name == "reserve":
             command.add_argument("--shot", required=True)
-        if name in {"status", "start", "query", "recover", "fees-import", "legacy-fees-import", "delivery-import"}:
+        if name in {"status", "start", "query", "recover", "fees-import", "task-fees-import", "legacy-fees-import", "delivery-import"}:
             command.add_argument("--operation", required=name != "status")
         if name in {"fees-import", "legacy-fees-import"}:
             command.add_argument("export")
+        if name == "task-fees-import":
+            command.add_argument("export")
+            command.add_argument("--source", required=True)
+            command.add_argument("--account-export", required=True)
         if name == "delivery-import":
             command.add_argument("--query", required=True)
             command.add_argument("image")
@@ -324,10 +351,13 @@ def main(argv=None):
     try:
         args = parser().parse_args(argv)
         if not args.control:
-            require(args.command == "status")
+            require(args.command == "status" and args.continuation is None)
             output = {"mode": "off", "dispatch_available": False, "automatic_followup_calls": 0}
         else:
             control = read_image_control(Path(args.control).expanduser().absolute(), BACKEND)
+            if args.continuation is not None:
+                from core.execution.image_code_continuation import ContinuedImageControl
+                control = ContinuedImageControl(control, args.continuation)
             output = execute(control, args.command, args)
         print(json.dumps(output, ensure_ascii=False))
         return 0

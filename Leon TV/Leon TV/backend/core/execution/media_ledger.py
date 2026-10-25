@@ -16,6 +16,7 @@ from core.execution.reference_derivation import (
     encoder_identity,
     references_from_proofs,
 )
+from core.execution.task_image_fees import candidate_for_task, claim_keys
 from core.planner.product_assets import image_jobs
 from core.planner.review import json_copy
 
@@ -30,6 +31,8 @@ FIELDS = {
     "claim": {"owner", "operation_id", "evidence_hash", "export_base64", "fee_source"},
     "delivery": {"operation_id", "query_id", "delivery", "bytes_base64"},
     "reference_derivation": {"operation_id", "proof"},
+    "code_continuation_quote": {"disclosure", "disclosure_hash"},
+    "code_continuation_activation": {"quote_id", "disclosure_hash", "previous_activation_id", "activation_sequence", "consent"},
     "key": {"verb", "request", "request_hash", "resource_key"},
 }
 COMMON = {"schema_version", "kind", "id", "scope_id", "task_id", "created_at"}
@@ -140,6 +143,8 @@ def _record_fields(record, media):
         fields = fields | {"manifest_origin"}
     if record["kind"] == "operation" and "reference_profile" in media.get("scope:" + str(record.get("scope_id")), {}):
         fields = fields | {"reference_profile_hash", "reference_derivations"}
+    if record["kind"] == "fee" and record.get("candidate", {}).get("kind") == "image_task_fee_candidate_v1":
+        fields = fields | {"task_fee_source", "account_export_base64"}
     return fields
 
 
@@ -179,7 +184,14 @@ def fee_claimed(payload, key, operation_id=None):
         evidence = operation.get("empirical", {}).get("fee_evidence")
         if evidence and evidence["platform_log_id"] == key and operation["id"] != operation_id:
             return True
-    return any(claim["id"] == key and claim["operation_id"] != operation_id for claim in records(payload, "claim"))
+    return (any(claim["id"] == key and claim["operation_id"] != operation_id for claim in records(payload, "claim"))
+            or any(key in claim_keys(fee["candidate"]) and fee["operation_id"] != operation_id
+                   for fee in records(payload, "fee")))
+
+
+def candidate_claimed(payload, candidate, operation_id=None):
+    """A native task and its actual POST ID identify one fee owner."""
+    return any(fee_claimed(payload, key, operation_id) for key in claim_keys(candidate))
 
 
 def unresolved_text_claims(payload):
@@ -281,6 +293,10 @@ def _validate(payload, previous, *, historical=False):
             continue
         scope = media["scope:" + record["scope_id"]]
         require(record["task_id"] == scope["task_id"])
+        if kind in {"code_continuation_quote", "code_continuation_activation"}:
+            from core.execution.image_code_continuation import validate_record
+            validate_record(payload, record)
+            continue
         if kind == "quote":
             require(record["disclosure_hash"] == digest({key: value for key, value in record.items() if key != "disclosure_hash"}))
             require(digest(record["disclosure"]) == digest(disclosure_for(scope)))
@@ -331,11 +347,18 @@ def _validate(payload, previous, *, historical=False):
         elif kind == "fee":
             original = media["operation:" + record["operation_id"]]
             descriptor = FrozenImageRequest.from_frozen(original["descriptor"])
-            candidate = candidate_for(descriptor, original["raw"], base64.b64decode(record["export_base64"], validate=True),
-                scope["fee_source"], observed_at=record["candidate"]["observed_at"])
+            export_bytes = base64.b64decode(record["export_base64"], validate=True)
+            if record["candidate"].get("kind") == "image_task_fee_candidate_v1":
+                candidate = candidate_for_task(descriptor, original["raw"], export_bytes,
+                    base64.b64decode(record["account_export_base64"], validate=True), scope["fee_source"],
+                    record["task_fee_source"], observed_at=record["candidate"]["observed_at"])
+            else:
+                candidate = candidate_for(descriptor, original["raw"], export_bytes,
+                    scope["fee_source"], observed_at=record["candidate"]["observed_at"])
             require(digest(candidate) == digest(record["candidate"]) and record["id"] == candidate["platform_log_id"])
             require(original["fee_id"] == record["id"])
             require("claim:" + record["id"] in media and media["claim:" + record["id"]]["owner"] == "media")
+            require(not candidate_claimed(payload, candidate, original["id"]))
         elif kind == "claim":
             require(record["owner"] == "media" and digest(record["fee_source"]) == digest(scope["fee_source"]))
             fee = media["fee:" + record["id"]]
@@ -461,6 +484,12 @@ def _validate(payload, previous, *, historical=False):
 def validate(payload, previous=None, *, historical=False):
     try:
         _validate(payload, previous, historical=historical)
+        from core.execution.scope_budget import _validate_fee_owners
+        _validate_fee_owners(payload)
+        if any(record["kind"] in {"code_continuation_quote", "code_continuation_activation"}
+               for record in payload.get("media", {}).values()):
+            from core.execution.image_code_continuation import validate_transition
+            validate_transition(payload, previous)
     except Exception:
         raise CreatorError("CORRUPT_STORAGE", "Media execution journal failed integrity checks") from None
 
