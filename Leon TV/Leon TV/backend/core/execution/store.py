@@ -124,6 +124,13 @@ def validate_payload(payload):
 
 
 def validate_state(state):
+    from core.execution.image_policy import _descriptor_snapshot
+
+    with _descriptor_snapshot():
+        return _validate_state(state)
+
+
+def _validate_state(state):
     require(set(state) == {"schema_version", "head_revision", "head_hash", "frames"} and type(state["schema_version"]) is int and state["schema_version"] == 2)
     require(isinstance(state["frames"], list) and type(state["head_revision"]) is int and state["head_revision"] == len(state["frames"]))
     previous = None

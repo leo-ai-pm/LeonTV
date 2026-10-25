@@ -7,6 +7,7 @@ import copy
 from pathlib import Path
 
 from core.creator.store import CreatorError, digest
+from core.execution.media_failure_phase import capture_stage
 from core.execution.policy import now
 from core.execution.receipt_transport import capture_once
 from core.execution.receipts import ReceiptCaptureSettings, ReceiptStore, timestamp
@@ -46,8 +47,10 @@ class ControlledImageCapture:
         self.receipts.check_private((backend / "code", backend.parent / "frontend/public", *static_roots))
 
     def capture(self, request, api_key):
+        capture_stage("image_descriptor")
         request = checked_request(request)
         try:
+            capture_stage("image_authority")
             require(callable(self.authority_verifier))
             candidate = request.frozen()
             before = digest(candidate)
@@ -56,8 +59,11 @@ class ControlledImageCapture:
             # that serializes both containers to the same JSON representation.
             json_copy(candidate, limit=8 * 1048576)
             require(permitted is True and digest(candidate) == before)
+            capture_stage("image_credential")
             require(type(api_key) is str and bool(api_key) and len(api_key.encode("utf-8")) <= 16384)
+            capture_stage("image_deadline")
             require(now() < timestamp(request.deadline_at))
+            capture_stage("image_environment")
             if request.validation_only:
                 require(self.settings.worker_factory is not None)
             else:

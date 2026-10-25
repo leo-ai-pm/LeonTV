@@ -16,6 +16,7 @@ from core.execution.image_policy import (
     build_image_submit,
 )
 from core.execution.image_receipts import decode_query, decode_submit, verify_delivery
+from core.execution.media_failure_phase import CaptureTrace, record_failure_phase
 from core.execution.media_ledger import (
     account_halted,
     candidate_claimed,
@@ -313,12 +314,19 @@ class MediaExecution:
                 require(not has_pending_fees(payload, scope["account_id"], exclude_operation_id=record["id"]), "MEDIA_PLATFORM_FEE_REQUIRED")
             record.update(status="submitting", capture_started_at=utc_now())
             descriptor = FrozenImageRequest.from_frozen(record["descriptor"])
-        try:
-            raw = self.capture.capture(descriptor, self.runtime.api_key)
-        except Exception:
-            with self.store.transaction() as payload:
-                payload["media"][record_key]["status"] = "unknown"
-                return {payload["media"][record_key]["kind"]: copy.deepcopy(payload["media"][record_key]), "replayed": False}
+        with CaptureTrace().active() as trace:
+            try:
+                raw = self.capture.capture(descriptor, self.runtime.api_key)
+            except Exception:
+                try:
+                    record_failure_phase(self.store.root, record, trace.stage)
+                except Exception:
+                    # Diagnostic availability never changes the original conservative
+                    # outcome or substitutes for a dispatch/HTTP/billing receipt.
+                    pass
+                with self.store.transaction() as payload:
+                    payload["media"][record_key]["status"] = "unknown"
+                    return {payload["media"][record_key]["kind"]: copy.deepcopy(payload["media"][record_key]), "replayed": False}
         with self.store.transaction() as payload:
             record = payload["media"][record_key]
             self._adopt(record, raw)

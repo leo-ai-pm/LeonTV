@@ -82,6 +82,16 @@ def current_code_manifest(control):
     """Collect actual approved-package candidates, never accept caller hashes."""
     require(type(control) is LoadedImageControl)
     control.verify_authority(for_dispatch=False)
+    return _collect_code_manifest(control)
+
+
+def _collect_code_manifest(control):
+    """Read actual code after this decision's authority check has completed.
+
+    This helper carries no authority and retains no snapshot or permission.
+    Standalone callers must use current_code_manifest; internal callers invoke
+    it only after _eligible has verified the current persisted authority.
+    """
     names = set(control.document.code_manifest) | set(REQUIRED_CODE_FILES) | EXTRA_CODE
     for directory in CODE_CLOSURE_DIRS:
         root = control.backend_root / directory
@@ -191,7 +201,7 @@ def quote_code_continuation(control, grant_id):
             _, _, ready, current = _eligible(control)
             require(digest(current) == digest(payload))
             scope, grant = _scope(control, payload, ready, grant_id)
-            manifest = current_code_manifest(control)
+            manifest = _collect_code_manifest(control)
             active = _active(payload, scope["id"])
             state = _state(store)
             for quote in reversed(records(payload, QUOTE)):
@@ -236,7 +246,7 @@ def activate_code_continuation(control, quote_id, *, disclosure_hash, consent):
             disclosure = quote["disclosure"]
             scope, grant = _scope(control, payload, ready, disclosure["grant_id"])
             _check_binding(control, scope, grant, disclosure)
-            require(current_code_manifest(control) == disclosure["new_code_manifest"])
+            require(_collect_code_manifest(control) == disclosure["new_code_manifest"])
             active = _active(payload, scope["id"])
             if active is not None and active["quote_id"] == quote_id:
                 return {"activation": copy.deepcopy(active), "replayed": True, "automatic_followup_calls": 0}
@@ -392,7 +402,7 @@ class ContinuedImageControl:
         d = quote["disclosure"]
         scope, grant = _scope(self.base, payload, ready, d["grant_id"])
         _check_binding(self.base, scope, grant, d)
-        require(scope["id"] == activation["scope_id"] and current_code_manifest(self.base) == d["new_code_manifest"])
+        require(scope["id"] == activation["scope_id"] and _collect_code_manifest(self.base) == d["new_code_manifest"])
         limits = _limits(payload, scope)
         require(limits["used_submissions"] >= d["remaining_limits"]["used_submissions"]
                 and limits["remaining_submissions"] >= 0 and limits["used_queries"] >= d["remaining_limits"]["used_queries"])

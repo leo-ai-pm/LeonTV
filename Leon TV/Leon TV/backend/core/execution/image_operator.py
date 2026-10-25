@@ -10,6 +10,7 @@ from core.creator.store import CreatorBriefStore, CreatorError, digest, utc_now
 from core.execution.asset_media_handoff import media_from_asset_design
 from core.execution.control import _private_path, _read
 from core.execution.image_control import read_image_control, require, unavailable
+from core.execution.media_failure_phase import capture_stage, failure_projection
 from core.execution.media_ledger import (
     account_halted,
     has_pending_fees,
@@ -46,10 +47,14 @@ class _BoundImageCapture:
         self.settings, self.receipts = capture.settings, capture.receipts
 
     def capture(self, request, _runtime_key):
+        capture_stage("control_before_key")
         self.control.verify_authority(for_dispatch=True)
+        capture_stage("native_before_key")
         require(self.media._capture_guard(request.frozen()) is True)
+        capture_stage("deadline_before_key")
         require(now() < timestamp(request.deadline_at))
         require(request.validation_only is self.control.document.policy["validation_only"])
+        capture_stage("credential_load")
         if request.validation_only:
             require(self.settings.worker_factory is not None)
             key = "SYNTHETIC-IMAGE-OPERATOR-KEY"
@@ -57,11 +62,15 @@ class _BoundImageCapture:
             require(self.settings.worker_factory is None and not self.settings.worker_options)
             require(callable(self.loader))
             key = self.loader()
+        capture_stage("credential_check")
         require(type(key) is str and bool(key) and len(key.encode("utf-8")) <= 16384)
         # Loading a credential is not authority. Recheck the actual persisted
         # reservation and current control after it, before the original capture.
+        capture_stage("control_after_key")
         self.control.verify_authority(for_dispatch=True)
+        capture_stage("native_after_key")
         require(self.media._capture_guard(request.frozen()) is True)
+        capture_stage("deadline_after_key")
         require(now() < timestamp(request.deadline_at))
         return self.capture_adapter.capture(request, key)
 
@@ -192,6 +201,9 @@ def _status(control, operation_id=None):
                 query_reason = "MEDIA_QUERY_LIMIT"
         result.update(operation=_resource(operation), query_count=len(queries), query_available=query_reason is None,
             query_blocked_reason=query_reason, queries=[_resource(query) for query in queries])
+        result["operation"]["failure_diagnostic"] = failure_projection(control.roots["execution"], operation)
+        for projected, query in zip(result["queries"], queries):
+            projected["failure_diagnostic"] = failure_projection(control.roots["execution"], query)
     return result
 
 

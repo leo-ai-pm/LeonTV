@@ -7,6 +7,8 @@ import base64
 import hashlib
 import json
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
@@ -25,6 +27,8 @@ KIND = "controlled_image_http_v1"
 SCOPE = "accepted_plan_image_tools_v1"
 MAX_BYTES = 1048576
 MAX_DESCRIPTOR_BYTES = 8 * MAX_BYTES
+_SNAPSHOT_PROOFS = ContextVar("image_descriptor_snapshot_proofs", default=None)
+_MAX_SNAPSHOT_PROOFS = 32
 Hash = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Identifier = Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]
 AMOUNT = re.compile(r"^(?:0|[1-9][0-9]{0,2})(?:\.[0-9]{1,6})?$")
@@ -293,9 +297,32 @@ def _seal(value):
     return {**value, "descriptor_hash": digest(value)}
 
 
+@contextmanager
+def _descriptor_snapshot():
+    """Reuse pure full-input proofs during one synchronous journal rebuild.
+
+    Only successfully reconstructed strict JSON inputs enter this bounded set.
+    No authority, time, filesystem or credential result is retained. Every new
+    journal snapshot gets a fresh set, including nested reconstructions.
+    """
+    token = _SNAPSHOT_PROOFS.set({"inputs": set(), "bytes": 0})
+    try:
+        yield
+    finally:
+        _SNAPSHOT_PROOFS.reset(token)
+
+
 def _checked(value):
     try:
         value = json_copy(value, limit=MAX_DESCRIPTOR_BYTES)
+        proofs = _SNAPSHOT_PROOFS.get()
+        serialized = None
+        if proofs is not None:
+            # Full strict input is the key; a caller's seal is never a proof.
+            # json_copy above rejects non-JSON types before serialization.
+            serialized = json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+            if serialized in proofs["inputs"]:
+                return value
         require(type(value) is dict and value.get("descriptor_hash") == digest({key: item for key, item in value.items() if key != "descriptor_hash"}))
         if value.get("method") == "POST":
             rebuilt = _submit_data(policy=value["policy"], budget_anchor=value["budget_anchor"], permit=value["permit"],
@@ -304,6 +331,11 @@ def _checked(value):
             require(value.get("method") == "GET")
             rebuilt = _query_data(submit=value["parent_submit"], submit_raw=value["submit_raw"], permit=value["permit"], query_index=value["query_index"])
         require(digest(value) == digest(_seal(rebuilt)))
+        if serialized is not None and len(proofs["inputs"]) < _MAX_SNAPSHOT_PROOFS:
+            size = len(serialized.encode("utf-8"))
+            if proofs["bytes"] + size <= MAX_DESCRIPTOR_BYTES:
+                proofs["inputs"].add(serialized)
+                proofs["bytes"] += size
         return value
     except Exception:
         raise ImagePolicyError() from None

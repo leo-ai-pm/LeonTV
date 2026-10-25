@@ -12,6 +12,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from core.creator.store import digest, utc_now
+from core.execution.media_failure_phase import capture_stage
 from core.execution.policy import now
 from core.execution.receipts import (
     MAX_IPC,
@@ -56,6 +57,7 @@ class CapturedTransport(ControlledTransport):
 
 def capture_once(receipt_store, binding, frozen_job, api_key, settings):
     """Internal delivery seam. The server adapter must verify authority first."""
+    capture_stage("collector_ipc")
     deadline = timestamp(binding["deadline_at"])
     observer_until = min(deadline, now() + timedelta(seconds=settings.observation_wait_seconds)) if settings.observation_wait_seconds is not None else deadline
     cutoff = deadline + timedelta(seconds=settings.cleanup_grace_seconds)
@@ -63,8 +65,10 @@ def capture_once(receipt_store, binding, frozen_job, api_key, settings):
     capability = secrets.token_hex(32)
     ipc = json.dumps({"capability": capability, "api_key": api_key, "job": job}, ensure_ascii=False).encode("utf-8")
     require(len(ipc) <= MAX_IPC)
+    capture_stage("collector_prepare")
     op, new = receipt_store.prepare(binding, digest(job), hashlib.sha256(capability.encode()).hexdigest(), observer_until.isoformat(), cutoff.isoformat())
     if not new:
+        capture_stage("collector_existing_claim")
         op.claim(binding)
         raise ObservationEnded("EXISTING_CAPTURE_REQUIRES_INSPECTION")
     if new:
@@ -73,6 +77,7 @@ def capture_once(receipt_store, binding, frozen_job, api_key, settings):
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
         # Factory selection is server-owned; tests supply synthetic source modules.
         environment["PYTHONPATH"] = os.pathsep.join([str(backend), str(backend / "tests")])
+        capture_stage("worker_launch")
         process = subprocess.Popen([sys.executable, "-m", "core.execution.receipt_worker", str(receipt_store.root), binding["operation_id"]],
             cwd=backend, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True, close_fds=True, env=environment)
@@ -85,7 +90,9 @@ def capture_once(receipt_store, binding, frozen_job, api_key, settings):
                 pass
             process.wait()
 
+        capture_stage("worker_feed")
         threading.Thread(target=feed_and_reap, name="receipt-ipc-reaper", daemon=True).start()
+    capture_stage("collector_observe")
     while now() < observer_until and now() < deadline:
         raw, summary = receipt_store.ready_raw_binding(binding["operation_id"], binding)
         if raw is not None and now() < observer_until and now() < deadline:
@@ -95,6 +102,7 @@ def capture_once(receipt_store, binding, frozen_job, api_key, settings):
             raise ResponseUnconfirmed(error)
         time.sleep(min(0.01, max(0.001, (observer_until - now()).total_seconds())))
     reason = "absolute_deadline" if now() >= deadline else "observation_ended"
+    capture_stage("collector_close")
     try:
         op.write_new("observer-closed.json", seal({"version": 1, "binding_hash": digest(binding), "closed_at": utc_now(), "reason": reason}, "closed_hash"))
     except Exception:
