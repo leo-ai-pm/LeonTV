@@ -11,6 +11,11 @@ from core.execution.image_policy import FrozenImageRequest, ImageToolPolicy, Med
 from core.execution.image_receipts import decode_query, decode_submit, verify_delivery
 from core.execution.policy import money, units
 from core.execution.receipts import timestamp
+from core.execution.reference_derivation import (
+    checked_profile,
+    encoder_identity,
+    references_from_proofs,
+)
 from core.planner.product_assets import image_jobs
 from core.planner.review import json_copy
 
@@ -24,6 +29,7 @@ FIELDS = {
     "fee": {"operation_id", "candidate", "export_base64"},
     "claim": {"owner", "operation_id", "evidence_hash", "export_base64", "fee_source"},
     "delivery": {"operation_id", "query_id", "delivery", "bytes_base64"},
+    "reference_derivation": {"operation_id", "proof"},
     "key": {"verb", "request", "request_hash", "resource_key"},
 }
 COMMON = {"schema_version", "kind", "id", "scope_id", "task_id", "created_at"}
@@ -62,12 +68,32 @@ def _stable_handoff(value):
 
 
 def disclosure_for(scope):
-    return {"scope": "accepted_plan_image_tools_v1", "scope_id": scope["id"], "account_hash": scope["account_hash"],
+    result = {"scope": "accepted_plan_image_tools_v1", "scope_id": scope["id"], "account_hash": scope["account_hash"],
         "policy": copy.deepcopy(scope["policy"]), "budget_anchor": copy.deepcopy(scope["anchor"]),
         "handoff_hash": scope["handoff"]["handoff_hash"], "provenance_hash": scope["handoff"]["provenance_hash"],
         "asset_input_hash": digest(scope["asset_input"]), "manifest_hash": scope["manifest"]["manifest_hash"],
         "fee_source_hash": digest(scope["fee_source"]), "data_categories": ["accepted_source_and_plan", "compiled_image_prompt", "internal_predecessor_images"],
         "risk_basis": "empirical_not_hard_billing_bound", "risk_released_after_fee": False, "grant_starts_generation": False}
+    if "reference_profile" in scope:
+        result["reference_profile"] = copy.deepcopy(scope["reference_profile"])
+    if "manifest_origin" in scope:
+        result["manifest_origin"] = copy.deepcopy(scope["manifest_origin"])
+    return result
+
+
+def reference_sources(payload, scope, shot_id):
+    """Original same-scope delivery bytes, never an Agent-supplied path or URL."""
+    job = next(job for job in image_jobs(scope["asset_input"], scope["manifest"]) if job["shot_id"] == shot_id)
+    result = []
+    for previous_shot in job["reference_shot_ids"]:
+        matches = [op for op in records(payload, "operation") if op["scope_id"] == scope["id"] and op["shot_id"] == previous_shot and op["delivery_id"] is not None]
+        require(len(matches) == 1, "MEDIA_REFERENCE_REQUIRED")
+        operation = matches[0]
+        delivery = payload["media"]["delivery:" + operation["delivery_id"]]
+        result.append({"operation_id": operation["id"], "query_id": delivery["query_id"], "delivery_id": delivery["id"],
+            "shot_id": previous_shot, "first_frame_version": 1, "delivery": copy.deepcopy(delivery["delivery"]),
+            "bytes_base64": delivery["bytes_base64"]})
+    return result
 
 
 def internal_references(payload, scope, shot_id):
@@ -86,7 +112,41 @@ def internal_references(payload, scope, shot_id):
     return result
 
 
+def operation_references(payload, scope, operation, *, source_payload=None, reencode=False):
+    if "reference_profile" not in scope:
+        return internal_references(payload if source_payload is None else source_payload, scope, operation["shot_id"])
+    require(operation["reference_profile_hash"] == scope["reference_profile"]["profile_hash"])
+    entries = operation["reference_derivations"]
+    require(type(entries) is list and all(type(entry) is dict and set(entry) == {"id", "derivation_hash"} for entry in entries))
+    require(len({entry["id"] for entry in entries}) == len(entries))
+    proofs = []
+    for entry in entries:
+        record = payload["media"]["reference_derivation:" + entry["id"]]
+        require(record["operation_id"] == operation["id"] and record["proof"]["derivation_hash"] == entry["derivation_hash"])
+        proofs.append(record["proof"])
+    source_payload = payload if source_payload is None else source_payload
+    job = operation["descriptor"]["job"]
+    return references_from_proofs(profile=scope["reference_profile"], sources=reference_sources(source_payload, scope, operation["shot_id"]),
+        target_job=job, policy=scope["policy"], scope_id=scope["id"], task_id=scope["task_id"], operation_id=operation["id"],
+        proofs=proofs, reencode=reencode)
+
+
+def _record_fields(record, media):
+    """Explicit optional profiles; old exact field sets remain unchanged."""
+    fields = COMMON | FIELDS[record["kind"]]
+    if record["kind"] == "scope" and "reference_profile" in record:
+        fields = fields | {"reference_profile"}
+    if record["kind"] == "scope" and "manifest_origin" in record:
+        fields = fields | {"manifest_origin"}
+    if record["kind"] == "operation" and "reference_profile" in media.get("scope:" + str(record.get("scope_id")), {}):
+        fields = fields | {"reference_profile_hash", "reference_derivations"}
+    return fields
+
+
 def account_halted(payload, account_id):
+    from core.execution.asset_design_ledger import own_halted
+    if own_halted(payload, account_id):
+        return True
     if any(op["account_id"] == account_id and op.get("empirical", {}).get("fee_status") == "overrun" for op in payload["operations"].values()):
         return True
     scopes = {scope["id"] for scope in records(payload, "scope") if scope["account_id"] == account_id}
@@ -94,18 +154,27 @@ def account_halted(payload, account_id):
 
 
 def has_pending_unknown(payload, account_id, exclude_operation_id=None):
+    from core.execution.asset_design_ledger import own_unknown
+    if own_unknown(payload, account_id, exclude_operation_id):
+        return True
     scopes = {scope["id"] for scope in records(payload, "scope") if scope["account_id"] == account_id}
     return any(op["scope_id"] in scopes and op["id"] != exclude_operation_id and op["status"] in {"submitting", "unknown"}
                for op in records(payload, "operation"))
 
 
 def has_pending_fees(payload, account_id, exclude_operation_id=None):
+    from core.execution.asset_design_ledger import own_pending_fees
+    if own_pending_fees(payload, account_id, exclude_operation_id):
+        return True
     scopes = {scope["id"] for scope in records(payload, "scope") if scope["account_id"] == account_id}
     return any(op["scope_id"] in scopes and op["id"] != exclude_operation_id and op["fee_id"] is None
                for op in records(payload, "operation"))
 
 
 def fee_claimed(payload, key, operation_id=None):
+    from core.execution.asset_design_ledger import own_fee_claimed
+    if own_fee_claimed(payload, key, operation_id):
+        return True
     for operation in payload["operations"].values():
         evidence = operation.get("empirical", {}).get("fee_evidence")
         if evidence and evidence["platform_log_id"] == key and operation["id"] != operation_id:
@@ -141,13 +210,13 @@ def text_claim_key(payload, operation_id, export_bytes, fee_source):
     return key
 
 
-def _validate(payload, previous):
+def _validate(payload, previous, *, historical=False):
     media = payload.get("media", {})
     require(type(media) is dict)
     json_copy(media, limit=48 * 1048576)
     for key, record in media.items():
         require(type(record) is dict and record.get("kind") in FIELDS)
-        require(set(record) == COMMON | FIELDS[record["kind"]])
+        require(set(record) == _record_fields(record, media))
         require(type(record["schema_version"]) is int and record["schema_version"] == 1)
         require(key == record["kind"] + ":" + record["id"] and record["task_id"] in payload["tasks"])
         timestamp(record["created_at"])
@@ -163,6 +232,13 @@ def _validate(payload, previous):
         require(scope["scope_id"] == scope["id"] and type(scope["ordinal"]) is int and scope["ordinal"] == ordinal)
         identity = {"task_id": scope["task_id"], "policy_hash": scope["policy"]["policy_hash"], "budget_anchor_hash": scope["anchor"]["budget_anchor_hash"],
             "manifest_hash": scope["manifest"]["manifest_hash"], "handoff_hash": scope["handoff"]["handoff_hash"]}
+        if "reference_profile" in scope:
+            require(digest(checked_profile(scope["reference_profile"])) == digest(scope["reference_profile"]))
+            identity["reference_profile_hash"] = scope["reference_profile"]["profile_hash"]
+        if "manifest_origin" in scope:
+            from core.execution.asset_media_handoff import check_manifest_origin
+            check_manifest_origin(payload, scope)
+            identity["manifest_origin_hash"] = digest(scope["manifest_origin"])
         require(scope["id"] == digest(identity)[:32])
         account = payload["accounts"][scope["account_id"]]
         require(account.get("accounting_kind") == "empirical_risk_v1" and scope["account_hash"] == digest(account))
@@ -240,7 +316,7 @@ def _validate(payload, previous):
             if kind == "operation":
                 require(data["method"] == "POST" and record["grant_id"] == grant["id"] and record["quote_id"] == grant["quote_id"])
                 require(record["shot_id"] == permit["shot_id"] and record["submission_index"] == permit["scope_submission_index"])
-                require(digest(data["references"]) == digest(internal_references(payload, scope, record["shot_id"])))
+                require(digest(data["references"]) == digest(operation_references(payload, scope, record)))
                 for reference in data["references"]:
                     preceding = next(op for op in records(payload, "operation") if op["scope_id"] == scope["id"] and op["shot_id"] == reference["shot_id"])
                     require(preceding["submission_index"] < record["submission_index"])
@@ -274,6 +350,12 @@ def _validate(payload, previous):
             require(query["operation_id"] == record["operation_id"])
             result = verify_delivery(FrozenImageRequest.from_frozen(query["descriptor"]), query["raw"], raw_image)
             require(digest(result) == digest(record["delivery"]))
+        elif kind == "reference_derivation":
+            require("reference_profile" in scope)
+            operation = media["operation:" + record["operation_id"]]
+            require(operation["scope_id"] == scope["id"] and record["proof"]["derivation_id"] == record["id"])
+            require(sum(entry == {"id": record["id"], "derivation_hash": record["proof"]["derivation_hash"]}
+                        for entry in operation["reference_derivations"]) == 1)
         elif kind == "key":
             require(record["request_hash"] == digest(record["request"]) and record["resource_key"] in media)
             verb = record["verb"]
@@ -343,7 +425,9 @@ def _validate(payload, previous):
                     require(not unresolved_text_claims(previous))
                     prior = [op for op in records(previous, "operation") if old["scope:" + op["scope_id"]]["account_id"] == scope["account_id"]]
                     require(all(op["fee_id"] is not None for op in prior))
-                    require(digest(record["descriptor"]["references"]) == digest(internal_references(previous, scope, record["shot_id"])))
+                    reencode = not historical or (scope.get("reference_profile", {}).get("encoder") == encoder_identity())
+                    require(digest(record["descriptor"]["references"]) == digest(operation_references(payload, scope, record,
+                        source_payload=previous, reencode=reencode)))
                 else:
                     require(old["operation:" + record["operation_id"]]["status"] == "accepted")
             elif kind == "grant":
@@ -353,6 +437,10 @@ def _validate(payload, previous):
                 require(old["operation:" + record["operation_id"]]["raw"] is not None)
             elif kind == "delivery":
                 require(old["query:" + record["query_id"]]["raw"] is not None)
+            elif kind == "reference_derivation":
+                require("operation:" + record["operation_id"] not in old)
+                require(any(new["kind"] == "operation" and new["id"] == record["operation_id"] for new in new_records))
+                require("delivery:" + record["proof"]["source_delivery_id"] in old)
         for account_id in payload["accounts"]:
             halted = account_halted(previous, account_id) or account_halted(payload, account_id)
             unknown = has_pending_unknown(previous, account_id) or has_pending_unknown(payload, account_id)
@@ -370,9 +458,9 @@ def _validate(payload, previous):
                             if media["scope:" + op["scope_id"]]["account_id"] == account_id))
 
 
-def validate(payload, previous=None):
+def validate(payload, previous=None, *, historical=False):
     try:
-        _validate(payload, previous)
+        _validate(payload, previous, historical=historical)
     except Exception:
         raise CreatorError("CORRUPT_STORAGE", "Media execution journal failed integrity checks") from None
 

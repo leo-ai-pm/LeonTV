@@ -14,14 +14,20 @@ from core.planner.protocol import parse_json
 from core.planner.store import check_source
 
 EMPTY = {"tasks": {}, "quotes": {}, "grants": {}, "operations": {}, "keys": {}, "accounts": {}}
-NAMESPACES = set(EMPTY) | {"media"}
+NAMESPACES = set(EMPTY) | {"media", "asset_design"}
 MAX_STATE_BYTES = 64 * 1048576
 
 
-def validate_media(payload, previous=None):
+def validate_media(payload, previous=None, *, historical=False):
     if "media" in payload or previous is not None and "media" in previous:
         from core.execution.media_ledger import validate
+        validate(payload, previous, historical=historical)
+    if "asset_design" in payload or previous is not None and "asset_design" in previous:
+        from core.execution.asset_design_ledger import validate
         validate(payload, previous)
+    if "asset_design" in payload or previous is not None and "asset_design" in previous:
+        from core.execution.scope_budget import validate_shared_scopes
+        validate_shared_scopes(payload, previous)
 
 
 def has_roles(payload):
@@ -129,11 +135,11 @@ def validate_state(state):
         before = {namespace: dict(records) for namespace, records in payload.items()}
         for namespace, records in frame["delta"].items():
             require(isinstance(records, dict))
-            if namespace == "media" and namespace not in payload:
+            if namespace in {"media", "asset_design"} and namespace not in payload:
                 payload[namespace] = {}
             payload[namespace].update(copy.deepcopy(records))
         validate_roles(payload, before)
-        validate_media(payload, before)
+        validate_media(payload, before, historical=True)
         previous = frame["hash"]
     require(state["head_hash"] == previous)
     validate_payload(payload)
@@ -167,10 +173,10 @@ class ExecutionStore(CreatorBriefStore):
                 except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, RecursionError):
                     raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
                 original = copy.deepcopy(payload)
-                original_digest = digest(original) if has_roles(original) or "media" in original else None
+                original_digest = digest(original) if has_roles(original) or "media" in original or "asset_design" in original else None
                 yield payload
                 try:
-                    profiled = has_roles(payload) or has_roles(original) or "media" in payload or "media" in original
+                    profiled = has_roles(payload) or has_roles(original) or "media" in payload or "media" in original or "asset_design" in payload or "asset_design" in original
                     if profiled:
                         from core.execution.roles import json_tree
                         json_tree(payload)

@@ -138,6 +138,13 @@ def media_status(task_id: TaskId, runtime=Depends(private_inspection)):
     return (media if media is not None else MediaExecution(runtime)).get(task_id)
 
 
+@router.get("/tasks/{task_id}/execution/asset-design")
+def asset_design_status(task_id: TaskId, runtime=Depends(private_inspection)):
+    from core.execution.asset_design import AssetDesignExecution
+    design = getattr(runtime, "asset_design", None)
+    return (design if design is not None else AssetDesignExecution(runtime)).get(task_id)
+
+
 @router.get("/execution/policy")
 def policy(runtime=Depends(private_execution)):
     return runtime.policy_view()
