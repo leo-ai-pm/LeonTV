@@ -24,6 +24,8 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 
 D33的 `image_fee_inspection` 是独立只读操作端，复用历史control与原journal重建，不构造执行runtime或费用观察器。它将POST身份、导出、精确候选、既有费用、查询和交付分列；不会写claim或续权。其原直接请求身份诊断合同继续保留。D34另增加原生task quota证据及task/request全局去重，并通过原journal认领首镜¥0.04；独立代码续接沿用原scope/grant/有效期。第二镜续行停为unknown，未取得新交付；只读基准强烈指向重复历史校验耗尽时限，确切异常阶段仍缺证。同次校验内的历史重建复用及派发前故障证据是下一优先项。[D34合同与实际边界](./TASK-FEE-CONTINUATION-VALIDATION.md)。[接口](./IMAGE-FEE-INSPECTION-API.md) · [真实只读验证](./IMAGE-FEE-INSPECTION-VALIDATION.md)。
 
+D35在每次完整journal重建内复用严格完整输入的纯描述符证明，不缓存权限或省略逐帧业务校验；续接内部的纯文件采集复用当次已完成的权限判断，各独立调用和Key前后仍重新检查。新采集异常可封存私有固定阶段观察，由原status只读验证投影；该观察不表示确切异常原因、未发HTTP、零费用或重试许可，历史unknown不回填。原到期范围、消耗和风险保留。[D35接口与验收](./RUNTIME-VALIDATION-PERF-VALIDATION.md)。
+
 ## 现役创作链路
 
 前端使用 Next.js、React、TypeScript、Tailwind CSS 与 React Flow。FastAPI 后端负责会话、项目、阶段执行、生成任务与媒体访问。
