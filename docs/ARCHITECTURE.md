@@ -17,7 +17,9 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 服务端执行控制 | D27独立配置、单任务准入、原引擎装配、平台导出收件箱及幂等恢复；默认关闭，旧范围只读 | 操作员配置UI、自动平台账单拉取、多供应商核费 |
 | 素材交接层 | D28原journal只读证据桥、显式1–12镜素材合同、完整图片集修订合同及图片交付身份检查 | 已发新素材请求、已集成VLM、文本grant包含媒体权限 |
 | 受控图片工具组件 | D29独立媒体描述符、原collector单次POST／GET、原始回执／文件技术校验和精确费用候选；默认关闭 | 单凭工具组件即可绕过独立媒体授权／账本调用、已完成自动素材调度或真实图片新调用 |
-| 统一媒体账本 | D30在原ExecutionStore增加可选媒体记录；独立授权、保留风险、费用观察／claim、交付与恢复；默认关闭 | 已完成操作员配置／写UI、自动素材Agent、最终账单结清或生产启用 |
+| 统一媒体账本 | D30媒体与D31素材文本共用原ExecutionStore；独立授权、保留风险、费用claim、交付与恢复；默认关闭 | 最终账单结清、视觉质量或生产启用 |
+| 原生素材执行与操作端 | D31单次素材文本调用、私有显式control／CLI、核费证明清单及图片交接；合成验收 | 已完成真实四镜制作、操作员写UI、自动审图或最终人工接受 |
+| 内部参考图转换 | 独立报价绑定转换profile／encoder，原图与衍生证明并存；JPEG需显式允许 | 技术转换即视觉通过、自动裁剪或任意压缩 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
 ## 现役创作链路
@@ -57,7 +59,9 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 
 ## 模型与工具
 
-D30的 `media_ledger/media_runtime` 复用原执行journal、任务锁及D29 collector，采用独立媒体授权与费用来源。原文本账户不扩限；媒体从父范围全额度继承，unknown、待核费及超额经统一门禁停止新派发。费用及全局claim同帧记录，旧平台别名仅凭原导出建立映射。只读媒体API不加载密钥／恢复任务；写入入口与自动素材角色仍待装配。[合同](./MEDIA-EXECUTION-API.md) · [验收](./MEDIA-EXECUTION-VALIDATION.md)。
+D30的 `media_ledger/media_runtime` 复用原执行journal、任务锁及D29 collector，采用独立媒体授权与费用来源。原文本账户不扩限；媒体从父范围全额度继承，unknown、待核费及超额经统一门禁停止新派发。费用及全局claim同帧记录，旧平台别名仅凭原导出建立映射。只读媒体API不加载密钥／恢复任务；图片范围的通用操作端装配仍待完成。[合同](./MEDIA-EXECUTION-API.md) · [验收](./MEDIA-EXECUTION-VALIDATION.md)。
+
+D31的 `asset_design/asset_design_ledger` 在同一journal显式增加素材文本范围，独立报价／授权、一次调用和核费后发布严格清单；`asset_control/asset_operator` 校验私有配置、父分配begin、代码manifest和接受版本，只有显式start加载密钥。`scope_budget` 保留原账户及全部素材／图片范围的冻结预算和次数，并对canonical fee作带工具身份的全局去重；三个通道共用未知／待核费／超额门禁。`asset_media_handoff` 重建确切raw、费用导出／claim和manifest证明，图片范围另行授权。可选 `reference_derivation` 绑定原交付、目标请求和报价encoder，保留原字节，显式允许时才压JPEG；默认旧格式/hash不变。新只读状态API不写入或恢复；默认应用及生产继续关闭，真实素材、视觉和人工验收待完成。[合同](./ASSET-DESIGN-API.md) · [验收](./ASSET-DESIGN-VALIDATION.md)。
 
 D29新增 `image_policy/image_capture/image_receipts/image_fees`，以明确的媒体scope复用原ReceiptStore和detached worker；worker仅为新kind选择固定POST／GET，旧文本路径仍为原POST。组件不另建调度和金融账本；独立verifier须核对实际媒体预留、grant、原始提交与引用字节，默认未注册。费用仅按生成请求ID精确产生候选，未做全局claim／结算或释放风险；迟到证据保留事实，不恢复执行。[合同](./CONTROLLED-IMAGE-TOOLS-API.md) · [验收](./CONTROLLED-IMAGE-TOOLS-VALIDATION.md)。
 

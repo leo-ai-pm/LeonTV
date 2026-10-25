@@ -23,6 +23,8 @@ The application provides a six-stage creative workflow, a node canvas, individua
 
 Planner, Reviewer, Repairer and Rechecker now share the existing controlled execution runtime, explicit quote consent, cumulative account limits and durable receipts. The new workflow is opt-in and cannot expand an existing task or grant. Synthetic transport checks cover the integrated path; production remains disabled, and real four-role collaboration, media quality and human acceptance are pending. See the [execution contract](./docs/PLANNER-ROLE-EXECUTION-API.md).
 
+The [D31 native asset path](./docs/ASSET-DESIGN-VALIDATION.md) adds a separately authorized single-call asset text Agent and explicit private operator control. A verified receipt and unique platform-fee observation are required before its manifest can enter an independently authorized image scope. Text, assets and images share retained scope budgets and unknown/pending-fee/overrun stops. Optional reference conversion preserves originals and requires disclosed JPEG permission. This new integration has synthetic acceptance only; production defaults remain off and no new real generation occurred.
+
 ## Video demos
 
 These are real API-generated outputs using the same scene, reference image and first-attempt prompt. The motion preview shows MiniMax H3 on the left and Seedance 2.5 on the right. Full files include their generated audio.
