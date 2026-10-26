@@ -2,6 +2,8 @@
 
 2026-10-25。代码`dab7ad4`。[接口合同](./IMAGE-CONTINUATION-PREFLIGHT-API.md) · [上一轮性能与阶段证据](./RUNTIME-VALIDATION-PERF-VALIDATION.md)。
 
+本文记录D36当轮结果，文中的“当前”和“下一项”均指该验收时点。后续授权合同及实际写入结果分别见[D37接口](./IMAGE-VALIDITY-CONTINUATION-API.md)与[D37验收](./IMAGE-VALIDITY-CONTINUATION-VALIDATION.md)，不回写本轮历史数值或检查结论。
+
 本轮把已到期图片范围的后续制作需求变成可独立核验的只读方案：保留第二镜 unknown 和已消耗次数，列出剩余镜头、替代版本、新有效窗口及增量风险。当前没有激活续期、分配新预算或发起生成，完整 Agent Harness 制作闭环仍待接通。原代码与历史完整保留；本轮166项针对性检查全部通过。
 
 ## 为什么需要增量方案
@@ -59,3 +61,9 @@
 接通后，在有效授权和实际历史体量下验收reserve→collector.prepare；仅在该链路通过后继续剩余图片、整组视觉Reviewer及必要局部返工，随后视频与人工终验。当前自主多角色生产、成片质量和Personal Agent均未完成。
 
 前端、共享服务、模型配置、Key和土豆分组未改；无需重新登录、补Key或找客服。浏览器未启用，本轮没有新HTTP、查询、费用认领、activation、视频或音频。代码只在本地保存，未推送GitHub。
+
+## 后续：D37续接授权
+
+D37将quote、持久预留意图和activation接入同一原生journal，并由服务器固定实际父账本，只允许旧45条加同一方案的唯一预留。意图成立即保留新增1元／1次，中断或重放不重复分配。activation固定为`dispatch_ready=false`、`runtime_contract_pending=true`，不修改原unknown、scope／grant、旧policy或历史消耗；真实写入与检查结果单列于[D37验收](./IMAGE-VALIDITY-CONTINUATION-VALIDATION.md)。
+
+后续D38仍须在同一intent、同一已留额度上批准新的精确代码及运行时合同，接通独立替代attempt与其余镜头，不能重复预留1元或把授权记录当成实际派发、生成成功或质量通过。

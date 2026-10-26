@@ -19,6 +19,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 受控图片工具组件 | D29独立媒体描述符、原collector单次POST／GET、原始回执／文件技术校验和精确费用候选；默认关闭 | 单凭工具组件即可绕过独立媒体授权／账本调用、已完成自动素材调度或真实图片新调用 |
 | 统一媒体账本 | D30媒体与D31素材文本共用原ExecutionStore；独立授权、保留风险、费用claim、交付与恢复；默认关闭 | 最终账单结清、视觉质量或生产启用 |
 | 原生素材与图片操作端 | D31单次素材文本、核费证明清单，D32独立图片control／CLI；复用原journal，原生素材已真实核费 | 操作员写UI、自动审图、完整自主制作或最终人工接受 |
+| 图片续接授权层 | D37原journal的quote／持久预留意图／activation，服务器固定实际父账本并核验唯一增量；意图起计入共享风险 | activation即派发许可、释放旧unknown、修改旧policy或重置消耗；本阶段固定`dispatch_ready=false`、`runtime_contract_pending=true` |
 | 内部参考图转换 | 独立报价绑定转换profile／encoder，原图与衍生证明并存；JPEG需显式允许 | 技术转换即视觉通过、自动裁剪或任意压缩 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
@@ -26,7 +27,11 @@ D33的 `image_fee_inspection` 是独立只读操作端，复用历史control与�
 
 D35在每次完整journal重建内复用严格完整输入的纯描述符证明，不缓存权限或省略逐帧业务校验；续接内部的纯文件采集复用当次已完成的权限判断，各独立调用和Key前后仍重新检查。新采集异常可封存私有固定阶段观察，由原status只读验证投影；该观察不表示确切异常原因、未发HTTP、零费用或重试许可，历史unknown不回填。原到期范围、消耗和风险保留。[D35接口与验收](./RUNTIME-VALIDATION-PERF-VALIDATION.md)。
 
-D36的 `image_continuation_parent/proposal/operator` 只做可核验的续接预审：重建原历史、精确费用／交付、唯一unknown、实际代码与父分配，派生后续窗口及新替代版本，并在输出前复查漂移。原329文件未改，旧runtime／账本仍拒绝到期范围；没有新派发通路。显式私有父文件仅为观察，未来激活必须由服务器固定live来源、确认精确旧45条加唯一新分配，并在原journal中绑定授权版本。当前原风险81.37／53次保持，82.37／54次只为方案值。[D36合同与验收](./IMAGE-CONTINUATION-PREFLIGHT-VALIDATION.md)。
+D36的 `image_continuation_parent/proposal/operator` 只做可核验的续接预审：重建原历史、精确费用／交付、唯一unknown、实际代码与父分配，派生后续窗口及新替代版本，并在输出前复查漂移。D36当轮原329文件未改，旧runtime／账本仍拒绝到期范围，没有新派发通路；风险81.37／53次保持，82.37／54次当时仅为方案值。显式私有父文件只是观察，不能作为任意副本的写入权威；后续固定live来源的授权实现见D37。[D36合同与验收](./IMAGE-CONTINUATION-PREFLIGHT-VALIDATION.md)。
+
+D37的 `image_validity_continuation`、`image_continuation_parent_io` 和 `image_validity_operator` 复用原任务锁、帧链与预算门禁，依次持久化quote、预留意图和activation。意图立即在共享包络保留新增1元／1次；父写入只接受固定实际路径下的原45条加唯一新分配，再以原生CAS记录激活。中断后风险继续保留，重放不重复分配，两个文件不被宣称为原子事务。合同包络为82.37元／54次，属于保守风险而非消费；原unknown、scope／grant、有效期及旧permit保持不变，activation不授予派发能力。[D37接口](./IMAGE-VALIDITY-CONTINUATION-API.md) · [实际写入与验收](./IMAGE-VALIDITY-CONTINUATION-VALIDATION.md)。
+
+下一项D38须在同一个intent及已保留额度上批准精确的新代码、runtime／账本／permit版本：按quote出生前缀核验旧事实，保留unknown，以新operation／nonce识别第二镜替代attempt及后两镜，沿用累计序号3、4、5。新unknown、待核费或超额仍停止；交付引用绑定确切版本。不得再分配1元、重建scope重置次数或以D37的同意批准未来任意代码。
 
 ## 现役创作链路
 

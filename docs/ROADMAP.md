@@ -114,8 +114,16 @@
 
 原1996个保护文件、52帧账本、100元授权、风险和次数均不变，没有真实生成或新交付。第二镜仍unknown，原范围已到期。下一项处理保留历史消耗与风险的版本化未知处置和有效范围续接；之后在有效许可中验收实际reserve→prepare，再继续图片、视觉Reviewer与条件返工。性能改善不是已恢复授权、零费用证明或允许重试。
 
-## D36 当前推进点
+## D36 历史推进点
 
-[图片续接预审](./IMAGE-CONTINUATION-PREFLIGHT-VALIDATION.md)已形成可机读、可独立重建的只读方案，绑定原scope／grant、代码和journal、已交付首镜及唯一unknown。原4次上限已用2次，但仍需3镜；方案提出累计5次及增量1元保留风险，原100元总额不变。82.37元／54次为提议值，当前仍81.37元／53次，没有实际新分配、续权或HTTP。原1996文件保持一致，真实私有导出／fresh verify／重放通过。
+[图片续接预审](./IMAGE-CONTINUATION-PREFLIGHT-VALIDATION.md)已形成可机读、可独立重建的只读方案，绑定原scope／grant、代码和journal、已交付首镜及唯一unknown。原4次上限已用2次，但仍需3镜；方案提出累计5次及增量1元保留风险，原100元总额不变。D36当轮82.37元／54次为提议值，实际仍81.37元／53次，没有新分配、续权或HTTP。原1996文件保持一致，真实私有导出／fresh verify／重放通过。
 
-下一项开发正式续接激活与新替代任务：服务器固定真实live父账本，验证旧45条精确保留加唯一新分配；用完整方案绑定和原journal CAS记录新授权版本，补齐账本／runtime的版本规则、全局unknown门禁与当前有效图片选择。随后在实际历史及有效许可内验收reserve→prepare，继续余下图片、产品视觉Reviewer／条件返工、视频和人工终验。原第二镜不重发、不清账；完整自主创作与Personal Agent仍未完成。当前无需用户补Key或重新登录。
+D36当轮的后续项是原journal内的正式续接授权及新替代任务。授权合同实现见D37；实际派发仍需后续版本规则与验收，不能通过修改日期、清除unknown或新建scope重置消耗。
+
+## D37 当前推进点
+
+[图片续接授权合同](./IMAGE-VALIDITY-CONTINUATION-API.md)已实现quote→durable intent→固定实际父账本的唯一预留→activation。intent起立即在原共享预算中保留新增1元／1次，父写入只接受旧45条精确保留加同一proposal的唯一分配；崩溃恢复与重放不重复占额。合同账户包络从81.37元／53次增至82.37元／54次，沿用原100元授权，这是本地风险预留而非实际消费或平台资金冻结。真实写入、测试与保护文件核对结果以[D37独立验收](./IMAGE-VALIDITY-CONTINUATION-VALIDATION.md)为准。
+
+本阶段activation固定为`dispatch_ready=false`、`runtime_contract_pending=true`，不派发模型请求。原unknown、已用意图、首镜费用与交付、scope／grant／旧policy全部保留。授权元数据完成不等于图片已恢复生成，更不等于完整Agent Harness制作闭环已验收。
+
+下一项D38在**同一intent、同一已留额度**上批准精确的新代码和runtime／账本／permit版本，不再分配1元、不重置次数。按quote出生前缀重建原披露，让第二镜的新attempt与后两镜沿用累计序号3、4、5；新unknown、待核费或超额继续停止，引用选择确切已交付版本。随后在实际历史体量和有效许可内验收reserve→collector.prepare，继续剩余图片、整组视觉Reviewer／条件返工、视频与人工终验。完整自主协作与Personal Agent仍为后续目标，当前无需用户补Key或重新登录。
