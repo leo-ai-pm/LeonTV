@@ -20,6 +20,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 统一媒体账本 | D30媒体与D31素材文本共用原ExecutionStore；独立授权、保留风险、费用claim、交付与恢复；默认关闭 | 最终账单结清、视觉质量或生产启用 |
 | 原生素材与图片操作端 | D31单次素材文本、核费证明清单，D32独立图片control／CLI；复用原journal，原生素材已真实核费 | 操作员写UI、自动审图、完整自主制作或最终人工接受 |
 | 图片续接授权层 | D37原journal的quote／持久预留意图／activation，服务器固定实际父账本并核验唯一增量；意图起计入共享风险 | activation即派发许可、释放旧unknown、修改旧policy或重置消耗；本阶段固定`dispatch_ready=false`、`runtime_contract_pending=true` |
+| 图片运行时续接 | D38同intent及既留4+1分配，原任务精确版本批准已落账，v2 permit、精确引用及统一候选门禁 | 通过实际120秒派发、已交付新媒体或已解除全局unknown；管理元数据与真实执行分别验收 |
 | 内部参考图转换 | 独立报价绑定转换profile／encoder，原图与衍生证明并存；JPEG需显式允许 | 技术转换即视觉通过、自动裁剪或任意压缩 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
@@ -31,7 +32,9 @@ D36的 `image_continuation_parent/proposal/operator` 只做可核验的续接预
 
 D37的 `image_validity_continuation`、`image_continuation_parent_io` 和 `image_validity_operator` 复用原任务锁、帧链与预算门禁，依次持久化quote、预留意图和activation。意图立即在共享包络保留新增1元／1次；父写入只接受固定实际路径下的原45条加唯一新分配，再以原生CAS记录激活。中断后风险继续保留，重放不重复分配，两个文件不被宣称为原子事务。合同包络为82.37元／54次，属于保守风险而非消费；原unknown、scope／grant、有效期及旧permit保持不变，activation不授予派发能力。[D37接口](./IMAGE-VALIDITY-CONTINUATION-API.md) · [实际写入与验收](./IMAGE-VALIDITY-CONTINUATION-VALIDATION.md)。
 
-下一项D38须在同一个intent及已保留额度上批准精确的新代码、runtime／账本／permit版本：按quote出生前缀核验旧事实，保留unknown，以新operation／nonce识别第二镜替代attempt及后两镜，沿用累计序号3、4、5。新unknown、待核费或超额仍停止；交付引用绑定确切版本。不得再分配1元、重建scope重置次数或以D37的同意批准未来任意代码。
+D38的 `image_runtime_continuation`、`image_continuation_funding`、`image_continuation_policy` 和显式运行时控制在同一个intent及已留4+1分配上建立新版本合同，新增风险／调用为0。D37原方案按真实quote出生前缀核验；新批准绑定精确代码和新lease，v2 permit以新operation／nonce及累计序号3、4、5区分第二镜替代attempt和后两镜，引用绑定明确的operation／query／delivery。两笔真实allocation及begin分别保留，原anchor不伪装为分配集合hash。原scope、grant、unknown及旧记录不变。运行时预留、派发／采集、媒体账本和共享预算共用精确候选门禁，文字／素材和其他scope不能借用例外。
+
+该候选门禁阻止新unknown、待核费或超额后的新付费POST；已明确accepted task的显式有界GET仍须满足当前revision／lease／grant／code／funding及父POST绑定，不自动查询或重试。跨revision不移植旧POST来续GET，只读恢复及费用／交付导入继续处理原事实。原任务的精确版本批准已独立验收；实际120秒reserve→collector.prepare、媒体生成与质量仍待验收，不能由授权落账推定完成。[D38接口](./IMAGE-RUNTIME-CONTINUATION-API.md) · [D38实际验收](./IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)。
 
 ## 现役创作链路
 

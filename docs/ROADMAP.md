@@ -120,10 +120,18 @@
 
 D36当轮的后续项是原journal内的正式续接授权及新替代任务。授权合同实现见D37；实际派发仍需后续版本规则与验收，不能通过修改日期、清除unknown或新建scope重置消耗。
 
-## D37 当前推进点
+## D37 历史推进点
 
 [图片续接授权合同](./IMAGE-VALIDITY-CONTINUATION-API.md)已实现quote→durable intent→固定实际父账本的唯一预留→activation。intent起立即在原共享预算中保留新增1元／1次，父写入只接受旧45条精确保留加同一proposal的唯一分配；崩溃恢复与重放不重复占额。合同账户包络从81.37元／53次增至82.37元／54次，沿用原100元授权，这是本地风险预留而非实际消费或平台资金冻结。真实写入、测试与保护文件核对结果以[D37独立验收](./IMAGE-VALIDITY-CONTINUATION-VALIDATION.md)为准。
 
 本阶段activation固定为`dispatch_ready=false`、`runtime_contract_pending=true`，不派发模型请求。原unknown、已用意图、首镜费用与交付、scope／grant／旧policy全部保留。授权元数据完成不等于图片已恢复生成，更不等于完整Agent Harness制作闭环已验收。
 
-下一项D38在**同一intent、同一已留额度**上批准精确的新代码和runtime／账本／permit版本，不再分配1元、不重置次数。按quote出生前缀重建原披露，让第二镜的新attempt与后两镜沿用累计序号3、4、5；新unknown、待核费或超额继续停止，引用选择确切已交付版本。随后在实际历史体量和有效许可内验收reserve→collector.prepare，继续剩余图片、整组视觉Reviewer／条件返工、视频与人工终验。完整自主协作与Personal Agent仍为后续目标，当前无需用户补Key或重新登录。
+D37当轮的后续项是同一intent与已留额度上的新代码／runtime版本合同；实现见D38。该历史阶段没有恢复生成，其原记录和验收结论保持。
+
+## D38 当前推进点
+
+[运行时续接合同](./IMAGE-RUNTIME-CONTINUATION-API.md)已接入原journal和图片执行器：新报价／批准绑定精确代码与新lease，沿用**同一intent、同一已留4+1分配**，新增风险／调用为0，不再分配1元、不重建scope／grant或重置消耗。D37原方案按真实出生前缀重建；v2 descriptor／permit绑定独立operation／nonce、第二镜替代attempt与第三／第四镜的累计序号3、4、5，引用选择确切交付版本。原unknown和全局事实函数保留。运行时预留、派发／采集、媒体账本及共享预算统一核验精确候选；文字／素材、其他scope和相同ID的其他类型记录不能借用例外。
+
+新unknown、待核费或超额停止新付费POST；明确accepted task的显式有界GET另受当前revision／lease／grant／code／funding及父POST绑定约束，没有自动query或retry。跨revision的旧POST不能直接借新批准续GET。只读恢复、核费和交付导入继续沿用原事实通道。
+
+原任务已写入精确新版本报价与批准，父预算及旧历史不变，尚未创建新图片请求；真实管理记录、保护文件和执行检查见[D38独立验收](./IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)。下一步在真实历史体量、有效窗口与原120秒期限内验收reserve→collector.prepare；仅在该边界通过后继续三镜、整组视觉Reviewer／必要局部返工、视频及人工终验。完整自主协作与Personal Agent仍为后续目标，当前无需用户补Key或重新登录。

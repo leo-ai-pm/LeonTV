@@ -2,6 +2,8 @@
 
 2026-10-25启动，2026-10-26收尾；代码提交`034fabf`。[接口合同](./IMAGE-VALIDITY-CONTINUATION-API.md) · [上一轮只读预审](./IMAGE-CONTINUATION-PREFLIGHT-VALIDATION.md)。
 
+本文保留D37当轮真实结果，文中的“当前”和“下一项”指该验收时点；55帧／46条父记录等历史数值不回写为后续结果。后续合同及实际验收分别见[D38接口](./IMAGE-RUNTIME-CONTINUATION-API.md)与[D38验收](./IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)。
+
 本轮把D36方案接入原执行账本的方案、预留意图和激活记录，新增预算由服务器固定的实际父账本承接。激活记录固定为`dispatch_ready=false`、`runtime_contract_pending=true`。本轮不接入新的图片permit或生成，原有效期、四次上限及未知请求门禁继续约束旧执行器。
 
 ## 持久化顺序
@@ -71,3 +73,10 @@
 接通并在实际历史体量内验收reserve→collector.prepare之后，再完成后三镜、整组视觉Reviewer及必要返工，随后视频与人工终验。完整自主制作及Personal Agent仍待实现。
 
 本轮不修改UI、模型配置、Key或土豆分组，不重启共享服务；没有新图片、视频、音频或质量验收。无需用户重新登录或提供Key。本地交付，未推送GitHub。
+
+
+## 后续：D38运行时版本合同
+
+D38在同一intent、同一已留4+1分配上接入精确代码／新lease报价与批准、v2 permit及精确候选门禁，新增风险／调用均为0。它按真实出生前缀核验本轮方案，保留scope／grant／unknown和旧记录，以新operation／nonce及累计序号3、4、5识别替代attempt和后两镜，引用绑定明确交付版本；不覆写本轮activation的固定标志，也不再追加1元预留。
+
+候选例外仅供明确同scope媒体操作，文字／素材及其他范围不能借用。新unknown、待核费或超额阻止新付费POST；accepted task的显式有界GET仍按当前授权及父POST绑定判断，不自动查询或重试。合同接入不证明已恢复真实生成，实际120秒reserve→collector.prepare、后续媒体与质量仍待单独验收，见[D38结果与边界](./IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)。
