@@ -33,6 +33,9 @@ FIELDS = {
     "reference_derivation": {"operation_id", "proof"},
     "code_continuation_quote": {"disclosure", "disclosure_hash"},
     "code_continuation_activation": {"quote_id", "disclosure_hash", "previous_activation_id", "activation_sequence", "consent"},
+    "validity_continuation_quote": {"proposal", "parent_evidence_ref", "dispatch_ready", "runtime_contract_pending"},
+    "validity_continuation_intent": {"quote_id", "proposal_hash", "consent", "additional_risk_cny", "additional_paid_calls", "dispatch_ready", "runtime_contract_pending"},
+    "validity_continuation_activation": {"quote_id", "intent_id", "proposal_hash", "consent", "parent_receipt", "dispatch_ready", "runtime_contract_pending"},
     "key": {"verb", "request", "request_hash", "resource_key"},
 }
 COMMON = {"schema_version", "kind", "id", "scope_id", "task_id", "created_at"}
@@ -297,6 +300,10 @@ def _validate(payload, previous, *, historical=False):
             from core.execution.image_code_continuation import validate_record
             validate_record(payload, record)
             continue
+        if kind in {"validity_continuation_quote", "validity_continuation_intent", "validity_continuation_activation"}:
+            from core.execution.image_validity_continuation import validate_record
+            validate_record(payload, record)
+            continue
         if kind == "quote":
             require(record["disclosure_hash"] == digest({key: value for key, value in record.items() if key != "disclosure_hash"}))
             require(digest(record["disclosure"]) == digest(disclosure_for(scope)))
@@ -490,6 +497,10 @@ def validate(payload, previous=None, *, historical=False):
                for record in payload.get("media", {}).values()):
             from core.execution.image_code_continuation import validate_transition
             validate_transition(payload, previous)
+        if any(record["kind"] in {"validity_continuation_quote", "validity_continuation_intent", "validity_continuation_activation"}
+               for record in payload.get("media", {}).values()):
+            from core.execution.image_validity_continuation import validate_transition
+            validate_transition(payload, previous)
     except Exception:
         raise CreatorError("CORRUPT_STORAGE", "Media execution journal failed integrity checks") from None
 
@@ -500,7 +511,7 @@ def projection(payload, task_id=None):
     operations = [op for op in records(payload, "operation") if op["scope_id"] in selected]
     fees = [fee for fee in records(payload, "fee") if fee["scope_id"] in selected]
     extra = sum(max(0, units(fee["candidate"]["platform_fee_cny"]) - units(fee["candidate"]["per_submission_risk_cny"])) for fee in fees)
-    return {"schema_version": 1, "status": "not_authorized" if not scopes else "halted" if any(account_halted(payload, scope["account_id"]) for scope in scopes) else "configured",
+    result = {"schema_version": 1, "status": "not_authorized" if not scopes else "halted" if any(account_halted(payload, scope["account_id"]) for scope in scopes) else "configured",
         "scope_count": len(scopes), "paid_call_count": len(operations), "query_count": sum(q["scope_id"] in selected for q in records(payload, "query")),
         "reserved_risk_cny": money(sum(units(scope["anchor"]["scope_risk_cny"]) for scope in scopes)),
         "retained_exposure_cny": money(sum(units(scope["anchor"]["scope_risk_cny"]) for scope in scopes) + extra),
@@ -512,3 +523,22 @@ def projection(payload, task_id=None):
             "account_max_calls": scope["anchor"]["account_max_calls"], "scope_max_calls": scope["anchor"]["scope_max_calls"]} for scope in scopes],
         "operations": [{"id": op["id"], "shot_id": op["shot_id"], "status": op["status"], "fee_observed": op["fee_id"] is not None,
             "delivered": op["delivery_id"] is not None} for op in operations]}
+    extensions = [record for record in records(payload, "validity_continuation_intent") if record["scope_id"] in selected]
+    if extensions:
+        from core.execution.scope_budget import scope_envelope
+
+        additional = sum(units(record["additional_risk_cny"]) for record in extensions)
+        result["reserved_risk_cny"] = money(units(result["reserved_risk_cny"]) + additional)
+        result["retained_exposure_cny"] = money(units(result["retained_exposure_cny"]) + additional)
+        result["reservation_stage"] = "scope_and_continuation_intent"
+        accounts = []
+        for account_id in sorted({scope["account_id"] for scope in scopes}):
+            envelope = scope_envelope(payload, account_id)
+            accounts.append({"account_id": account_id, "retained_risk_cny": money(envelope["risk_units"]),
+                "retained_max_calls": envelope["max_calls"]})
+        result["continuation"] = {"reservation_intent_count": len(extensions),
+            "activation_count": sum(record["scope_id"] in selected for record in records(payload, "validity_continuation_activation")),
+            "additional_reserved_risk_cny": money(additional),
+            "additional_reserved_call_slots": sum(record["additional_paid_calls"] for record in extensions),
+            "accounts": accounts, "dispatch_ready": False, "runtime_contract_pending": True}
+    return result

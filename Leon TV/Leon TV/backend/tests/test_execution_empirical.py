@@ -56,11 +56,47 @@ class EmpiricalEnv(Env):
             if current["status"] in {"plan_ready", "blocked"}:
                 return current
             if current["blocked_reason"] == "PLATFORM_FEE_REQUIRED":
-                self.fee(task, current)
+                current = self.fee(task, current)
+                if current["status"] in {"plan_ready", "blocked"}:
+                    return current
             elif current["status"] == "needs_reconciliation":
                 return current
             time.sleep(0.01)
         raise AssertionError("Synthetic empirical flow did not finish")
+
+
+@pytest.mark.parametrize("terminal_status", ["plan_ready", "blocked"])
+def test_complete_consumes_fee_terminal_result_after_poll_window(monkeypatch, terminal_status):
+    class Clock:
+        value = 0
+
+        def monotonic(self):
+            return self.value
+
+        def sleep(self, seconds):
+            self.value += seconds
+
+    clock = Clock()
+    waiting = {"status": "needs_reconciliation", "blocked_reason": "PLATFORM_FEE_REQUIRED"}
+    terminal = {"status": terminal_status,
+        "blocked_reason": None if terminal_status == "plan_ready" else "SYNTHETIC_RULE_REJECTED"}
+    calls = []
+
+    class FictionalEnv:
+        def observe(self, task):
+            calls.append("observe")
+            return waiting
+
+        def fee(self, task, current):
+            assert current is waiting
+            calls.append("fee")
+            clock.value = 16
+            return terminal
+
+    # Replace only this helper's module reference, not stdlib time or a runtime clock.
+    monkeypatch.setitem(EmpiricalEnv.complete.__globals__, "time", clock)
+    assert EmpiricalEnv.complete(FictionalEnv(), {"id": "fictional-task"}, seconds=15) is terminal
+    assert calls == ["observe", "fee"]
 
 
 @pytest.fixture

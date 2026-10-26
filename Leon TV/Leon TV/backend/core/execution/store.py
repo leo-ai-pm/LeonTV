@@ -25,7 +25,9 @@ def validate_media(payload, previous=None, *, historical=False):
     if "asset_design" in payload or previous is not None and "asset_design" in previous:
         from core.execution.asset_design_ledger import validate
         validate(payload, previous)
-    if "asset_design" in payload or previous is not None and "asset_design" in previous:
+    if ("asset_design" in payload or previous is not None and "asset_design" in previous
+            or any(record.get("kind") == "validity_continuation_intent"
+                   for record in payload.get("media", {}).values())):
         from core.execution.scope_budget import validate_shared_scopes
         validate_shared_scopes(payload, previous)
 
@@ -153,6 +155,10 @@ def _validate_state(state):
     if any(record["kind"] in {"code_continuation_quote", "code_continuation_activation"}
            for record in payload.get("media", {}).values()):
         from core.execution.image_code_continuation import validate_history
+        validate_history(state, payload)
+    if any(record["kind"] in {"validity_continuation_quote", "validity_continuation_intent", "validity_continuation_activation"}
+           for record in payload.get("media", {}).values()):
+        from core.execution.image_validity_continuation import validate_history
         validate_history(state, payload)
     return payload
 
