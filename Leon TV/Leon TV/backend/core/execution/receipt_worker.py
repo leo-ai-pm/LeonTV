@@ -33,7 +33,7 @@ def collect(store, claim, job):
         operation, policy = job["operation"], job["policy"]
         binding = binding_for(operation)
         endpoint, wire, validation_only = policy["endpoint"], operation["wire"], policy["validation_only"]
-    elif job["kind"] == "controlled_image_http_v1":
+    elif job["kind"] in {"controlled_image_http_v1", "controlled_image_http_v2"}:
         from core.execution.image_capture import worker_request
 
         binding, endpoint, wire, validation_only, method, body_limit = worker_request(job, claim)

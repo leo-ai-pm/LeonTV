@@ -250,8 +250,13 @@ def _validate(payload, previous):
             if new_text or new_images or new_assets:
                 require(len(new_text) + len(new_images) + len(new_assets) <= 1)
                 require(not account_halted(previous, account_id) and not account_halted(payload, account_id))
-                require(not has_pending_unknown(previous, account_id) and not has_pending_unknown(payload, account_id))
-                require(not has_pending_fees(previous, account_id))
+                if new_images and new_images[0]["descriptor"]["kind"] == "controlled_image_http_v2":
+                    from core.execution.media_continuation_gate import candidate_gate
+                    candidate_gate(previous, new_images[0])
+                    candidate_gate(payload, new_images[0], exclude_candidate=True)
+                else:
+                    require(not has_pending_unknown(previous, account_id) and not has_pending_unknown(payload, account_id))
+                    require(not has_pending_fees(previous, account_id))
 
 
 def validate(payload, previous=None):

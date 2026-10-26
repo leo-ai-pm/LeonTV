@@ -14,6 +14,7 @@ from core.execution.receipts import ReceiptCaptureSettings, ReceiptStore, timest
 from core.planner.review import json_copy
 
 KIND = "controlled_image_http_v1"
+KINDS = {KIND, "controlled_image_http_v2"}
 
 
 def rejected():
@@ -70,7 +71,7 @@ class ControlledImageCapture:
                 require(self.settings.worker_factory is None and not self.settings.worker_options)
         except Exception:
             raise rejected() from None
-        job = {"kind": KIND, "descriptor": request.frozen(), "binding": request.binding(),
+        job = {"kind": request.frozen()["kind"], "descriptor": request.frozen(), "binding": request.binding(),
                "worker_factory": self.settings.worker_factory, "worker_options": copy.deepcopy(self.settings.worker_options)}
         # Existing claims are inspect-only. capture_once never dispatches twice.
         return capture_once(self.receipts, request.binding(), job, api_key, self.settings)
@@ -92,9 +93,10 @@ def worker_request(job, claim):
     try:
         from core.execution.image_policy import FrozenImageRequest
         require(type(job) is dict and set(job) == {"kind", "descriptor", "binding", "worker_factory", "worker_options", "api_key"})
-        require(job["kind"] == KIND)
+        require(job["kind"] in KINDS)
         request = FrozenImageRequest.from_frozen(job["descriptor"])
         binding = request.binding()
+        require(job["kind"] == binding["kind"] == request.frozen()["kind"])
         require(job["binding"] == claim["binding"] == binding)
         require((timestamp(claim["cleanup_cutoff"]) - timestamp(binding["deadline_at"])).total_seconds() == 5)
         require(timestamp(request.frozen()["permit"]["issued_at"]) <= timestamp(claim["created_at"]))

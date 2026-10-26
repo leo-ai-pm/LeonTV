@@ -46,7 +46,7 @@ from core.planner.review import json_copy
 
 
 class MediaExecution:
-    def __init__(self, runtime, *, policy=None, budget_anchor=None, manifest=None, authority_guard=None, fee_source=None, receipt_capture=None, reference_profile=None, manifest_origin=None):
+    def __init__(self, runtime, *, policy=None, budget_anchor=None, manifest=None, authority_guard=None, fee_source=None, receipt_capture=None, reference_profile=None, manifest_origin=None, continuation_activation_id=None, continuation_guard=None):
         self.runtime, self.store = runtime, runtime.store
         self.policy = policy.frozen() if isinstance(policy, ImageToolPolicy) else copy.deepcopy(policy)
         self.anchor = budget_anchor.frozen() if isinstance(budget_anchor, MediaBudgetAnchor) else copy.deepcopy(budget_anchor)
@@ -54,6 +54,8 @@ class MediaExecution:
         self.manifest_origin = copy.deepcopy(manifest_origin)
         self.reference_profile = checked_profile(reference_profile) if reference_profile is not None else None
         self.authority_guard = authority_guard
+        self.continuation_activation_id = continuation_activation_id
+        self.continuation_guard = continuation_guard
         self.fee_source = FrozenFeeSource.model_validate(fee_source).model_dump() if fee_source is not None else None
         self.capture = ControlledImageCapture(self.store.root / "media-receipts", authority_verifier=self._capture_guard,
             settings=receipt_capture or ReceiptCaptureSettings())
@@ -86,12 +88,29 @@ class MediaExecution:
         payload["media"][key] = record
         return record
 
-    def _authority(self, scope):
+    def _authority(self, scope, *, payload=None):
         require(self.policy is not None and self.anchor is not None and self.manifest is not None and self.fee_source is not None, "MEDIA_DISABLED")
         require(digest(scope["policy"]) == digest(self.policy) and digest(scope["anchor"]) == digest(self.anchor)
                 and digest(scope["manifest"]) == digest(self.manifest) and digest(scope["fee_source"]) == digest(self.fee_source), "MEDIA_POLICY_STALE")
         require(digest(scope.get("reference_profile")) == digest(self.reference_profile), "MEDIA_POLICY_STALE")
         require(digest(scope.get("manifest_origin")) == digest(self.manifest_origin), "MEDIA_POLICY_STALE")
+        if getattr(self, "continuation_activation_id", None) is not None:
+            from core.execution.image_runtime_continuation import (
+                authority_for,
+                latest_activation_id,
+            )
+            current = self.store.read_only() if payload is None else payload
+            authority = authority_for(current, self.continuation_activation_id)
+            require(authority["scope_id"] == scope["id"] and authority["scope_hash"] == digest(scope), "MEDIA_POLICY_STALE")
+            require(latest_activation_id(current, scope["id"]) == authority["activation_id"], "MEDIA_POLICY_STALE")
+            require(now() < timestamp(authority["effective_policy"]["valid_until"]), "MEDIA_POLICY_EXPIRED")
+            require(callable(self.continuation_guard), "MEDIA_DISABLED")
+            candidate, frozen = copy.deepcopy(scope), copy.deepcopy(authority)
+            permitted = self.continuation_guard(candidate, frozen)
+            json_copy(candidate, limit=16 * 1048576)
+            json_copy(frozen, limit=16 * 1048576)
+            require(permitted is True and digest(candidate) == digest(scope) and digest(frozen) == digest(authority), "MEDIA_AUTHORITY_REJECTED")
+            return authority
         require(now() < timestamp(scope["policy"]["valid_until"]), "MEDIA_POLICY_EXPIRED")
         require(callable(self.authority_guard), "MEDIA_DISABLED")
         candidate = json_copy(scope, limit=16 * 1048576)
@@ -218,6 +237,8 @@ class MediaExecution:
 
     def reserve_submit(self, task_id, grant_id, shot_id, *, references=(), key):
         request = {"task_id": task_id, "grant_id": grant_id, "shot_id": shot_id, "references": [] if references == () else references}
+        if self.continuation_activation_id is not None:
+            request["runtime_activation_id"] = self.continuation_activation_id
         with self._lock(task_id), self.store.transaction() as payload:
             old = self._replay(payload, "submit", key, request)
             if old:
@@ -225,15 +246,19 @@ class MediaExecution:
             grant = payload.get("media", {}).get("grant:" + grant_id)
             require(grant is not None and grant["task_id"] == task_id and grant["revoked_at"] is None, "MEDIA_GRANT_REQUIRED")
             scope = payload["media"]["scope:" + grant["scope_id"]]
-            self._authority(scope)
+            authority = self._authority(scope, payload=payload)
             require(not unresolved_text_claims(payload), "MEDIA_LEGACY_FEE_BRIDGE_REQUIRED")
             require(not account_halted(payload, scope["account_id"]), "EMPIRICAL_RISK_OVERRUN")
-            require(not has_pending_unknown(payload, scope["account_id"]), "MEDIA_RESPONSE_UNCONFIRMED")
-            require(not has_pending_fees(payload, scope["account_id"]), "MEDIA_PLATFORM_FEE_REQUIRED")
+            if authority is None:
+                require(not has_pending_unknown(payload, scope["account_id"]), "MEDIA_RESPONSE_UNCONFIRMED")
+                require(not has_pending_fees(payload, scope["account_id"]), "MEDIA_PLATFORM_FEE_REQUIRED")
             require(not any(op["account_id"] == scope["account_id"] and op["status"] != "settled" for op in payload["operations"].values()), "MEDIA_TEXT_RESPONSE_PENDING")
             prior = [op for op in records(payload, "operation") if op["scope_id"] == scope["id"]]
-            require(all(op["fee_id"] is not None for op in prior), "MEDIA_PLATFORM_FEE_REQUIRED")
-            require(len(prior) < scope["policy"]["max_submissions"] and all(op["shot_id"] != shot_id for op in prior), "MEDIA_CALL_LIMIT")
+            if authority is None:
+                require(all(op["fee_id"] is not None for op in prior), "MEDIA_PLATFORM_FEE_REQUIRED")
+                require(len(prior) < scope["policy"]["max_submissions"] and all(op["shot_id"] != shot_id for op in prior), "MEDIA_CALL_LIMIT")
+            else:
+                require(len(prior) < authority["max_cumulative_submissions"], "MEDIA_CALL_LIMIT")
             job = next(job for job in image_jobs(scope["asset_input"], scope["manifest"]) if job["shot_id"] == shot_id)
             operation_id = uuid.uuid4().hex
             proofs = []
@@ -245,23 +270,59 @@ class MediaExecution:
             else:
                 actual_references = self._references(payload, scope, shot_id)
                 require(references == () or digest(json_copy(references)) == digest(actual_references), "MEDIA_REFERENCE_REQUIRED")
-            permit = self._permit(scope, grant, job, operation_id=operation_id, index=len(prior) + 1)
-            descriptor = build_image_submit(policy=scope["policy"], budget_anchor=scope["anchor"], permit=permit,
-                asset_input=scope["asset_input"], manifest=scope["manifest"], shot_id=shot_id, references=actual_references)
+            if authority is None:
+                permit = self._permit(scope, grant, job, operation_id=operation_id, index=len(prior) + 1)
+                descriptor = build_image_submit(policy=scope["policy"], budget_anchor=scope["anchor"], permit=permit,
+                    asset_input=scope["asset_input"], manifest=scope["manifest"], shot_id=shot_id, references=actual_references)
+            else:
+                from core.execution.image_continuation_policy import (
+                    bind_reference_sources,
+                    build_image_submit_v2,
+                    make_continuation_permit,
+                )
+                bindings = bind_reference_sources(reference_sources(payload, scope, shot_id), actual_references)
+                permit = make_continuation_permit(scope, grant, job, authority, operation_id=operation_id,
+                    index=len(prior) + 1, reference_bindings=bindings)
+                descriptor = build_image_submit_v2(policy=authority["effective_policy"], budget_anchor=scope["anchor"],
+                    permit=permit, continuation_authority=authority, asset_input=scope["asset_input"],
+                    manifest=scope["manifest"], shot_id=shot_id, references=actual_references, reference_bindings=bindings)
             if "reference_profile" in scope:
                 check_descriptor_capacity(descriptor, worker_factory=self.capture.settings.worker_factory,
                     worker_options=self.capture.settings.worker_options)
                 for proof in proofs:
                     self._put(payload, self._record("reference_derivation", proof["derivation_id"], task_id, scope["id"],
                         operation_id=operation_id, proof=proof))
-            operation = self._put(payload, self._record("operation", operation_id, task_id, scope["id"], descriptor=descriptor.frozen(),
+            operation = self._record("operation", operation_id, task_id, scope["id"], descriptor=descriptor.frozen(),
                 grant_id=grant_id, quote_id=grant["quote_id"], shot_id=shot_id, submission_index=len(prior) + 1,
-                status="reserved", capture_started_at=None, raw=None, receipt=None, fee_id=None, delivery_id=None))
+                status="reserved", capture_started_at=None, raw=None, receipt=None, fee_id=None, delivery_id=None)
             if "reference_profile" in scope:
                 operation.update(reference_profile_hash=scope["reference_profile"]["profile_hash"],
                     reference_derivations=[{"id": proof["derivation_id"], "derivation_hash": proof["derivation_hash"]} for proof in proofs])
+            if authority is not None:
+                from core.execution.media_continuation_gate import candidate_gate
+                candidate_gate(payload, operation)
+            self._put(payload, operation)
             self._remember(payload, "submit", key, request, operation)
             return {"operation": copy.deepcopy(operation), "replayed": False}
+
+    def _record_authority(self, payload, scope, record):
+        from core.execution.media_continuation_gate import is_continuation
+        authority = self._authority(scope, payload=payload)
+        if authority is None:
+            require(not is_continuation(record), "MEDIA_AUTHORITY_REJECTED")
+        else:
+            require(is_continuation(record)
+                    and digest(record["descriptor"]["continuation_authority"]) == digest(authority), "MEDIA_AUTHORITY_REJECTED")
+        return authority
+
+    def _dispatch_checks(self, payload, scope, record):
+        from core.execution.media_continuation_gate import candidate_gate, is_continuation
+        require(not account_halted(payload, scope["account_id"]), "EMPIRICAL_RISK_OVERRUN")
+        if is_continuation(record):
+            candidate_gate(payload, record, exclude_candidate=True)
+        else:
+            require(not has_pending_unknown(payload, scope["account_id"], exclude_operation_id=record["id"]), "MEDIA_RESPONSE_UNCONFIRMED")
+            require(not has_pending_fees(payload, scope["account_id"], exclude_operation_id=record["id"]), "MEDIA_PLATFORM_FEE_REQUIRED")
 
     def _capture_guard(self, frozen):
         try:
@@ -271,13 +332,11 @@ class MediaExecution:
             record = payload["media"][kind + ":" + permit["operation_id"]]
             require(record["status"] == "submitting" and digest(record["descriptor"]) == digest(frozen))
             scope = payload["media"]["scope:" + record["scope_id"]]
-            self._authority(scope)
+            self._record_authority(payload, scope, record)
             grant = payload["media"]["grant:" + permit["grant_id"]]
             require(grant["revoked_at"] is None)
             if kind == "operation":
-                require(not account_halted(payload, scope["account_id"]))
-                require(not has_pending_unknown(payload, scope["account_id"], exclude_operation_id=record["id"]))
-                require(not has_pending_fees(payload, scope["account_id"], exclude_operation_id=record["id"]))
+                self._dispatch_checks(payload, scope, record)
                 require(not unresolved_text_claims(payload))
             return True
         except Exception:
@@ -305,14 +364,15 @@ class MediaExecution:
             if record["capture_started_at"] is not None:
                 return {record["kind"]: copy.deepcopy(record), "replayed": True}
             scope = payload["media"]["scope:" + record["scope_id"]]
-            self._authority(scope)
+            self._record_authority(payload, scope, record)
             grant = payload["media"]["grant:" + record["descriptor"]["permit"]["grant_id"]]
             require(grant["revoked_at"] is None, "MEDIA_GRANT_REVOKED")
             if record["kind"] == "operation":
-                require(not account_halted(payload, scope["account_id"]), "EMPIRICAL_RISK_OVERRUN")
-                require(not has_pending_unknown(payload, scope["account_id"], exclude_operation_id=record["id"]), "MEDIA_RESPONSE_UNCONFIRMED")
-                require(not has_pending_fees(payload, scope["account_id"], exclude_operation_id=record["id"]), "MEDIA_PLATFORM_FEE_REQUIRED")
-            record.update(status="submitting", capture_started_at=utc_now())
+                self._dispatch_checks(payload, scope, record)
+            started = utc_now()
+            require(timestamp(record["created_at"]) <= timestamp(started) < timestamp(record["descriptor"]["permit"]["deadline_at"]),
+                    "MEDIA_PERMIT_EXPIRED")
+            record.update(status="submitting", capture_started_at=started)
             descriptor = FrozenImageRequest.from_frozen(record["descriptor"])
         with CaptureTrace().active() as trace:
             try:
@@ -339,6 +399,8 @@ class MediaExecution:
     def query(self, task_id, operation_id, *, key):
         from core.execution.image_policy import FrozenImageRequest
         request = {"task_id": task_id, "operation_id": operation_id}
+        if self.continuation_activation_id is not None:
+            request["runtime_activation_id"] = self.continuation_activation_id
         with self._lock(task_id):
             with self.store.transaction() as payload:
                 old = self._replay(payload, "query", key, request)
@@ -348,15 +410,23 @@ class MediaExecution:
                     operation = payload["media"]["operation:" + operation_id]
                     require(operation["task_id"] == task_id and operation["status"] == "accepted", "MEDIA_ACCEPTED_TASK_REQUIRED")
                     scope = payload["media"]["scope:" + operation["scope_id"]]
-                    self._authority(scope)
+                    authority = self._record_authority(payload, scope, operation)
                     count = sum(q["operation_id"] == operation_id for q in records(payload, "query"))
                     require(count < scope["policy"]["max_queries"], "MEDIA_QUERY_LIMIT")
                     original = FrozenImageRequest.from_frozen(operation["descriptor"])
                     grant = payload["media"]["grant:" + operation["grant_id"]]
                     require(grant["revoked_at"] is None, "MEDIA_GRANT_REVOKED")
                     query_id = uuid.uuid4().hex
-                    permit = self._permit(scope, grant, original.frozen()["job"], operation_id=query_id,
-                        index=operation["submission_index"], action="query", query_index=count + 1)
+                    if authority is None:
+                        permit = self._permit(scope, grant, original.frozen()["job"], operation_id=query_id,
+                            index=operation["submission_index"], action="query", query_index=count + 1)
+                    else:
+                        from core.execution.image_continuation_policy import (
+                            make_continuation_permit,
+                        )
+                        permit = make_continuation_permit(scope, grant, original.frozen()["job"], authority,
+                            operation_id=query_id, index=operation["submission_index"], action="query",
+                            query_index=count + 1, reference_bindings=original.frozen()["reference_bindings"])
                     descriptor = build_image_query(submit=original, submit_raw=operation["raw"], permit=permit, query_index=count + 1)
                     query = self._put(payload, self._record("query", query_id, task_id, scope["id"], operation_id=operation_id,
                         descriptor=descriptor.frozen(), query_index=count + 1, status="reserved", capture_started_at=None, raw=None, receipt=None))

@@ -38,11 +38,13 @@ class EmpiricalEnv(Env):
     def evidence(self, operation_id, amount=None, **changes):
         operation = self.runtime.store.read_only()["operations"][operation_id]
         receipt = operation["normalized"] or decode(operation["raw"], self.runtime.policy)[0]
+        saved = operation.get("empirical", {}).get("fee_evidence")
         result = {"schema_version": 1, "operation_id": operation_id, "wire_hash": operation["wire_hash"],
             "raw_body_sha256": hashlib.sha256(base64.b64decode(operation["raw"]["body_base64"])).hexdigest(), "model": self.runtime.policy["model"],
             "provider_response_id": receipt["provider_response_id"], "provider_request_id": receipt["provider_request_id"],
             "prompt_tokens": receipt["input_tokens"], "completion_tokens": receipt["output_tokens"], "platform_log_id": "synthetic-platform-" + operation_id,
-            "platform_fee_cny": money(receipt["local_units"]) if amount is None else amount, "source_export_hash": "e" * 64, "observed_at": utc_now()}
+            "platform_fee_cny": money(receipt["local_units"]) if amount is None else amount, "source_export_hash": "e" * 64,
+            "observed_at": utc_now() if saved is None else saved["observed_at"]}
         return result | changes
 
     def fee(self, task, state, amount=None, **changes):
@@ -63,6 +65,37 @@ class EmpiricalEnv(Env):
                 return current
             time.sleep(0.01)
         raise AssertionError("Synthetic empirical flow did not finish")
+
+
+def test_evidence_replay_reuses_saved_observation_time_but_allows_explicit_override(monkeypatch):
+    operation_id = "a" * 32
+    first_time, later_time = "2026-01-01T00:00:00+00:00", "2026-01-01T00:01:00+00:00"
+    operation = {"wire_hash": "b" * 64, "raw": {"body_base64": base64.b64encode(b"fictional HTTP body").decode()},
+        "normalized": {"provider_response_id": "fictional-response", "provider_request_id": "fictional-request",
+            "input_tokens": 2, "output_tokens": 3, "local_units": 50}, "empirical": {"fee_evidence": None}}
+
+    class FictionalStore:
+        def read_only(self):
+            return {"operations": {operation_id: operation}}
+
+    class FictionalRuntime:
+        store = FictionalStore()
+        policy = {"model": "fictional-model"}
+
+    class FictionalEnv:
+        runtime = FictionalRuntime()
+
+    monkeypatch.setitem(EmpiricalEnv.evidence.__globals__, "utc_now", lambda: first_time)
+    original = EmpiricalEnv.evidence(FictionalEnv(), operation_id)
+    # Saved native observations have derived fields that are not raw evidence
+    # inputs. Replay must reuse just the factual timestamp, not return this dict.
+    operation["empirical"]["fee_evidence"] = original | {"evidence_hash": digest(original), "platform_units": 50}
+    monkeypatch.setitem(EmpiricalEnv.evidence.__globals__, "utc_now", lambda: later_time)
+    replayed = EmpiricalEnv.evidence(FictionalEnv(), operation_id)
+    assert replayed == original
+    assert "evidence_hash" not in replayed and "platform_units" not in replayed
+    changed = EmpiricalEnv.evidence(FictionalEnv(), operation_id, observed_at=later_time)
+    assert changed != original and changed["observed_at"] == later_time
 
 
 @pytest.mark.parametrize("terminal_status", ["plan_ready", "blocked"])

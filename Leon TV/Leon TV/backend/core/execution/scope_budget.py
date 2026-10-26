@@ -131,8 +131,14 @@ def _validate_paid_intents(payload, previous):
         require(len(additions) <= 1)
         if additions:
             require(not account_halted(previous, account_id) and not account_halted(payload, account_id))
-            require(not has_pending_unknown(previous, account_id) and not has_pending_unknown(payload, account_id))
-            require(not has_pending_fees(previous, account_id))
+            candidate = payload.get("media", {}).get("operation:" + additions[0][1]) if additions[0][0] == "media" else None
+            if candidate is not None and candidate["descriptor"]["kind"] == "controlled_image_http_v2":
+                from core.execution.media_continuation_gate import candidate_gate
+                candidate_gate(previous, candidate)
+                candidate_gate(payload, candidate, exclude_candidate=True)
+            else:
+                require(not has_pending_unknown(previous, account_id) and not has_pending_unknown(payload, account_id))
+                require(not has_pending_fees(previous, account_id))
             if additions[0][0] != "text":
                 require(all(op["status"] == "settled" for op in previous["operations"].values()
                             if op["account_id"] == account_id))

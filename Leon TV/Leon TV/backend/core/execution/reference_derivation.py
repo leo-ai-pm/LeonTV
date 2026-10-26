@@ -289,7 +289,7 @@ def check_descriptor_capacity(descriptor, *, worker_factory=None, worker_options
     probe.update(method="GET", wire="", parent_submit=frozen,
                  submit_raw={"body_base64": "x" * (4 * ((raw_limit + 2) // 3))}, accepted_task_id="x" * 128)
     require(len(json.dumps(probe, ensure_ascii=False).encode()) + 65536 <= MAX_DESCRIPTOR_BYTES, "MEDIA_REFERENCE_DESCRIPTOR_LIMIT")
-    job = {"kind": "controlled_image_http_v1", "descriptor": probe, "binding": descriptor.binding(),
+    job = {"kind": probe["kind"], "descriptor": probe, "binding": descriptor.binding(),
            "worker_factory": worker_factory, "worker_options": worker_options or {}}
     ipc = {"capability": "x" * 64, "api_key": "x" * 16384, "job": job}
     require(len(json.dumps(ipc, ensure_ascii=False).encode()) + 8192 <= 8 * MAX_BYTES, "MEDIA_REFERENCE_DESCRIPTOR_LIMIT")

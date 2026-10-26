@@ -324,7 +324,11 @@ def _checked(value):
             if serialized in proofs["inputs"]:
                 return value
         require(type(value) is dict and value.get("descriptor_hash") == digest({key: item for key, item in value.items() if key != "descriptor_hash"}))
-        if value.get("method") == "POST":
+        if value.get("kind") == "controlled_image_http_v2":
+            from core.execution.image_continuation_policy import rebuild
+
+            rebuilt = rebuild(value)
+        elif value.get("method") == "POST":
             rebuilt = _submit_data(policy=value["policy"], budget_anchor=value["budget_anchor"], permit=value["permit"],
                 asset_input=value["asset_input"], manifest=value["manifest"], shot_id=value["job"]["shot_id"], references=value["references"])
         else:
@@ -357,12 +361,13 @@ class FrozenImageRequest:
         value = self.frozen()
         permit = value["permit"]
         proof_fields = {key: item for key, item in permit.items() if key.endswith("_hash")}
-        return {"kind": KIND, "scope": SCOPE, "operation_id": permit["operation_id"], "task_id": permit["task_id"],
+        continuation = {key: permit[key] for key in ("runtime_activation_id", "runtime_revision_sequence", "attempt_version", "replacement_of")} if value["kind"] == "controlled_image_http_v2" else {}
+        return {"kind": value["kind"], "scope": value["scope"], "operation_id": permit["operation_id"], "task_id": permit["task_id"],
             "capture_id": permit["capture_id"], "nonce": permit["nonce"], "deadline_at": permit["deadline_at"],
             "action": permit["action"], "method": value["method"], "descriptor_hash": value["descriptor_hash"],
             "wire_hash": digest(value["wire"]), "query_index": value["query_index"],
             "parent_descriptor_hash": value["parent_submit"]["descriptor_hash"] if value["parent_submit"] else None,
-            "submit_raw_hash": digest(value["submit_raw"]) if value["submit_raw"] else None, **proof_fields}
+            "submit_raw_hash": digest(value["submit_raw"]) if value["submit_raw"] else None, **proof_fields, **continuation}
 
     @property
     def method(self):
@@ -406,6 +411,11 @@ def build_image_submit(*, policy, budget_anchor, permit, asset_input, manifest, 
 def build_image_query(*, submit, submit_raw, permit, query_index):
     """Build an independent GET permit for the task actually accepted by POST."""
     try:
+        candidate = submit.frozen() if isinstance(submit, FrozenImageRequest) else submit
+        if type(candidate) is dict and candidate.get("kind") == "controlled_image_http_v2":
+            from core.execution.image_continuation_policy import build_image_query_v2
+
+            return build_image_query_v2(submit=candidate, submit_raw=submit_raw, permit=permit, query_index=query_index)
         return FrozenImageRequest.from_frozen(_seal(_query_data(submit=submit, submit_raw=submit_raw, permit=permit, query_index=query_index)))
     except Exception:
         raise ImagePolicyError() from None

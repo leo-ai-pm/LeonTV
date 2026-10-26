@@ -141,7 +141,7 @@ def _checked_unknown(value, operation):
             and _hash(phase["evidence_hash"]) and timestamp(phase["recorded_at"]) >= timestamp(operation["capture_started_at"]))
 
 
-def _proposal(payload, record):
+def _proposal(payload, record, *, birth=False):
     """Validate stable facts from the already checked journal, without live IO."""
     from core.execution.image_continuation_parent_io import REF_FIELDS, REF_KIND
 
@@ -181,7 +181,16 @@ def _proposal(payload, record):
     until, created = timestamp(b["proposed_valid_until"]), timestamp(record["created_at"])
     require(timestamp(scope["created_at"]) <= created < until <= created + timedelta(hours=24)
         and until > timestamp(policy["valid_until"]) and policy["request_deadline_seconds"] == 120)
-    operations, unknown = _operations(payload, scope, grant)
+    # The proposal freezes the facts at its actual birth. Later approved
+    # attempts must not turn that disclosure into a claim about a new head.
+    # The birth checks below and validate_history reconstruct the real prefix;
+    # here the old unknown and delivered records remain immutable bindings.
+    frozen_ids = [item["operation_id"] for item in b["verified_deliveries"]] + [b["unknown_disposition"]["operation_id"]]
+    require(len(frozen_ids) == len(set(frozen_ids)))
+    operations = sorted((payload["media"]["operation:" + item] for item in frozen_ids), key=lambda item: item["submission_index"])
+    require(all(item["scope_id"] == scope["id"] and item["grant_id"] == grant["id"] for item in operations))
+    unknown = payload["media"]["operation:" + b["unknown_disposition"]["operation_id"]]
+    require(unknown["status"] == "unknown" and unknown["delivery_id"] is None)
     _checked_unknown(b["unknown_disposition"], unknown)
     targets = _targets(scope, operations, unknown)
     require(_same(b["remaining_jobs"], targets) and _same(b["verified_deliveries"], _deliveries(payload, operations)))
@@ -191,9 +200,14 @@ def _proposal(payload, record):
     limits = {"original_max_submissions": policy["max_submissions"], "used_submissions": len(operations),
         "inherited_remaining_submissions": remaining, "undelivered_jobs": len(targets), "additional_paid_calls": 1,
         "proposed_cumulative_max_submissions": policy["max_submissions"] + 1, "proposed_remaining_submissions": len(targets),
-        "max_queries_per_operation": policy["max_queries"], "used_queries": sum(item["scope_id"] == scope["id"] for item in records(payload, "query")),
+        "max_queries_per_operation": policy["max_queries"], "used_queries": b["limits"]["used_queries"],
         "original_request_deadline_seconds": 120, "original_intents_released": 0}
     require(_same(b["limits"], limits))
+    require(type(limits["used_queries"]) is int and 0 <= limits["used_queries"] <= len(operations) * policy["max_queries"])
+    if birth:
+        actual_operations, actual_unknown = _operations(payload, scope, grant)
+        require(_same(actual_operations, operations) and _same(actual_unknown, unknown))
+        require(limits["used_queries"] == sum(item["scope_id"] == scope["id"] for item in records(payload, "query")))
     parent = b["parent"]
     require(type(parent) is dict and set(parent) == {"evidence_hash", "authorization_hash", "frozen_parent_sha256",
         "current_parent_sha256", "old_operations_hash", "old_operation_count", "retained_risk_cny", "max_calls", "original_budget_cny"})
@@ -312,6 +326,7 @@ def validate_transition(payload, previous=None):
                 prior = _active(previous, scope["id"])
                 require(b["previous_code_activation_id"] == (None if prior is None else prior["id"]))
                 require(old["grant:" + b["grant_id"]]["revoked_at"] is None)
+                _proposal(previous, record, birth=True)
             elif record["kind"] == INTENT:
                 require(not _own(previous, INTENT, scope["id"]))
                 quote = old[QUOTE + ":" + record["quote_id"]]
@@ -338,6 +353,20 @@ def _birth(state, record):
 
 def validate_history(state, payload):
     try:
+        from core.execution.store import EMPTY
+
+        prefix = copy.deepcopy(EMPTY)
+        for frame in state["frames"]:
+            for record in frame["delta"].get("media", {}).values():
+                if record["kind"] == QUOTE:
+                    checkpoint = record["proposal"]["basis"]["checkpoint"]
+                    require(checkpoint["head_revision"] == frame["revision"] - 1
+                        and checkpoint["head_hash"] == frame["previous_hash"]
+                        and checkpoint["payload_hash"] == digest(prefix))
+                    _proposal(prefix, record, birth=True)
+            for namespace, values in frame["delta"].items():
+                prefix.setdefault(namespace, {}).update(copy.deepcopy(values))
+        require(_same(prefix, payload))
         for quote in records(payload, QUOTE):
             birth = _birth(state, quote)
             checkpoint = quote["proposal"]["basis"]["checkpoint"]

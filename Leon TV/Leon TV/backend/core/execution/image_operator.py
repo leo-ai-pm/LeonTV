@@ -102,11 +102,15 @@ def build_image_session(control, *, receipt_capture=None, credential_loader=None
     planner = PlannerRuntime(control.roots["planner"], CreatorBriefStore(control.roots["creator"]))
     runtime = ExecutionRuntime(control.roots["execution"], planner)
     try:
+        continuation = {}
+        if getattr(control, "runtime_activation_id", None) is not None:
+            continuation = {"continuation_activation_id": control.runtime_activation_id,
+                "continuation_guard": control.guard_runtime}
         media = media_from_asset_design(runtime, control.document.admission.task_id,
             control.document.admission.asset_operation_id, policy=control.document.policy,
             budget_anchor=control.document.budget_anchor, authority_guard=control.guard,
             fee_source=control.document.fee_source.model_dump(), reference_profile=control.document.reference_profile,
-            receipt_capture=receipt_capture)
+            receipt_capture=receipt_capture, **continuation)
         expected = control.verified_asset()
         require(digest(media.manifest) == digest(expected["manifest"]) and digest(media.manifest_origin) == digest(expected["origin"]))
         media.capture = _BoundImageCapture(control, media, media.capture, credential_loader or tudou_credential)
@@ -146,6 +150,9 @@ def _resource(record):
 
 
 def _status(control, operation_id=None):
+    if getattr(control, "runtime_activation_id", None) is not None:
+        from core.execution.image_runtime_control import runtime_status
+        return runtime_status(control, operation_id)
     payload = ExecutionStore(control.roots["execution"]).read_only()
     try:
         control.verify_authority(for_dispatch=True)
@@ -329,11 +336,13 @@ def parser():
     result = Parser(description="Explicit native image operation; no automatic follow-ups")
     result.add_argument("--control")
     result.add_argument("--continuation")
+    result.add_argument("--runtime-continuation")
     subs = result.add_subparsers(dest="command", required=True)
     for name in ("status", "quote", "grant", "reserve", "start", "query", "recover", "fees-import", "task-fees-import", "legacy-fees-import", "delivery-import", "revoke"):
         command = subs.add_parser(name)
         command.add_argument("--control", default=argparse.SUPPRESS)
         command.add_argument("--continuation", default=argparse.SUPPRESS)
+        command.add_argument("--runtime-continuation", default=argparse.SUPPRESS)
         command.add_argument("--task")
         if name in {"quote", "grant", "reserve", "query"}:
             command.add_argument("--key", required=True)
@@ -363,13 +372,18 @@ def main(argv=None):
     try:
         args = parser().parse_args(argv)
         if not args.control:
-            require(args.command == "status" and args.continuation is None)
+            require(args.command == "status" and args.continuation is None and args.runtime_continuation is None)
             output = {"mode": "off", "dispatch_available": False, "automatic_followup_calls": 0}
         else:
             control = read_image_control(Path(args.control).expanduser().absolute(), BACKEND)
+            require(args.continuation is None or args.runtime_continuation is None)
             if args.continuation is not None:
                 from core.execution.image_code_continuation import ContinuedImageControl
                 control = ContinuedImageControl(control, args.continuation)
+            if args.runtime_continuation is not None:
+                require(args.command not in {"quote", "grant", "legacy-fees-import"})
+                from core.execution.image_runtime_control import RuntimeContinuedImageControl
+                control = RuntimeContinuedImageControl(control, args.runtime_continuation)
             output = execute(control, args.command, args)
         print(json.dumps(output, ensure_ascii=False))
         return 0
