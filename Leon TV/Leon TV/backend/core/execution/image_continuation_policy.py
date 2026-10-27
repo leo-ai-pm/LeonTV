@@ -34,6 +34,8 @@ from core.planner.review import json_copy
 
 KIND = "controlled_image_http_v2"
 SCOPE = "accepted_plan_image_tools_v2"
+RESPONSE_KIND = "controlled_image_http_v3"
+RESPONSE_SCOPE = "accepted_plan_image_tools_v3"
 
 
 class ImageContinuationPermit(ImageToolPermit):
@@ -51,6 +53,21 @@ class ImageContinuationPermit(ImageToolPermit):
     def checked_attempt(self):
         require((self.attempt_version == 2) is (self.replacement_of is not None))
         require(self.operation_id != self.replacement_of)
+        return self
+
+
+class ImageResponseContinuationPermit(ImageContinuationPermit):
+    """A new native permit; historical v2 permits gain no response authority."""
+
+    schema_version: Literal[4] = 4
+    scope: Literal["accepted_plan_image_tools_v3"] = RESPONSE_SCOPE
+    job_kind: Literal["controlled_image_http_v3"] = RESPONSE_KIND
+    response_deadline_at: str
+    response_contract_hash: Hash
+
+    @model_validator(mode="after")
+    def checked_response(self):
+        require(timestamp(self.deadline_at) < timestamp(self.response_deadline_at))
         return self
 
 
@@ -145,6 +162,21 @@ def _authority(policy, anchor, permit, authority):
     issued, deadline = timestamp(permit["issued_at"]), timestamp(permit["deadline_at"])
     require(0 < (deadline - issued).total_seconds() <= policy["request_deadline_seconds"])
     require(deadline <= timestamp(policy["valid_until"]))
+    if authority["schema_version"] == 3:
+        from core.execution.image_response_lifecycle import validate_response_policy
+
+        response_policy = validate_response_policy(authority["response_policy"])
+        require(permit["schema_version"] == 4 and permit["job_kind"] == RESPONSE_KIND
+                and permit["scope"] == RESPONSE_SCOPE)
+        require(policy["request_deadline_seconds"] == response_policy["dispatch_window_seconds"]
+                and (deadline - issued).total_seconds() == response_policy["dispatch_window_seconds"])
+        response_deadline = timestamp(permit["response_deadline_at"])
+        require((response_deadline - deadline).total_seconds() == response_policy["response_window_seconds"])
+        require(permit["response_contract_hash"] == response_policy["contract_hash"])
+        require(response_deadline <= timestamp(policy["valid_until"]))
+    else:
+        require(authority["schema_version"] == 2 and permit["schema_version"] == 2
+                and permit["job_kind"] == KIND and permit["scope"] == SCOPE)
     if permit["action"] == "submit":
         require(amount(permit["risk_cny"]) == amount(policy["per_submission_risk_cny"]))
 
@@ -168,6 +200,18 @@ def make_continuation_permit(scope, grant, job, authority, *, operation_id, inde
         policy, anchor, binding = authority["effective_policy"], authority["original_budget_anchor"], scope["asset_input"]["binding"]
         issued = now()
         deadline = min(issued + timedelta(seconds=policy["request_deadline_seconds"]), timestamp(policy["valid_until"]))
+        response = {}
+        permit_type = ImageContinuationPermit
+        if authority["schema_version"] == 3:
+            from core.execution.image_response_lifecycle import validate_response_policy
+
+            response_policy = validate_response_policy(authority["response_policy"])
+            deadline = issued + timedelta(seconds=response_policy["dispatch_window_seconds"])
+            response_deadline = deadline + timedelta(seconds=response_policy["response_window_seconds"])
+            require(response_deadline <= timestamp(policy["valid_until"]))
+            response = {"response_deadline_at": response_deadline.isoformat(),
+                        "response_contract_hash": response_policy["contract_hash"]}
+            permit_type = ImageResponseContinuationPermit
         value = {"operation_id": operation_id, "capture_id": operation_id, "task_id": scope["task_id"], "nonce": uuid.uuid4().hex,
             "action": action, "policy_hash": policy["policy_hash"], "budget_anchor_hash": anchor["budget_anchor_hash"],
             **{key: anchor[key] for key in ("parent_authorization_hash", "parent_ledger_hash", "parent_allocation_hash", "parent_allocation_begin_hash")},
@@ -180,8 +224,8 @@ def make_continuation_permit(scope, grant, job, authority, *, operation_id, inde
             "issued_at": issued.isoformat(), "deadline_at": deadline.isoformat(),
             "continuation_authority_hash": authority["authority_hash"], "runtime_activation_id": authority["activation_id"],
             "runtime_revision_sequence": authority["revision_sequence"], "attempt_version": target["attempt_version"],
-            "replacement_of": target["replacement_of"], "reference_bindings_hash": digest(bindings)}
-        checked = _model(value, ImageContinuationPermit)
+            "replacement_of": target["replacement_of"], "reference_bindings_hash": digest(bindings), **response}
+        checked = _model(value, permit_type)
         _authority(policy, anchor, checked, authority)
         return {key: item for key, item in checked.items() if key != "permit_hash"}
     except Exception:
@@ -191,7 +235,8 @@ def make_continuation_permit(scope, grant, job, authority, *, operation_id, inde
 def _submit_data(*, policy, budget_anchor, permit, continuation_authority, asset_input,
                  manifest, shot_id, references, reference_bindings):
     policy, anchor = _model(policy, ImageToolPolicy), _model(budget_anchor, MediaBudgetAnchor)
-    permit, authority = _model(permit, ImageContinuationPermit), _checked_authority(continuation_authority)
+    authority = _checked_authority(continuation_authority)
+    permit = _model(permit, ImageResponseContinuationPermit if authority["schema_version"] == 3 else ImageContinuationPermit)
     require(permit["action"] == "submit" and permit["shot_id"] == shot_id)
     _authority(policy, anchor, permit, authority)
     asset_input = product_assets.checked_asset_payload(asset_input)
@@ -218,7 +263,9 @@ def _submit_data(*, policy, budget_anchor, permit, continuation_authority, asset
         body["images"] = [f"data:{reference['mime_type']};base64,{reference['bytes_base64']}" for reference in references]
     wire = json.dumps(body, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
     require(len(wire.encode("utf-8")) <= policy["max_request_bytes"])
-    return {"schema_version": 2, "kind": KIND, "scope": SCOPE, "method": "POST",
+    version = {"schema_version": 4, "kind": RESPONSE_KIND, "scope": RESPONSE_SCOPE} if authority["schema_version"] == 3 else {
+        "schema_version": 2, "kind": KIND, "scope": SCOPE}
+    return {**version, "method": "POST",
         "endpoint": policy["origin"] + "/v1/images/generations/async", "wire": wire,
         "policy": policy, "budget_anchor": anchor, "permit": permit, "asset_input": asset_input,
         "manifest": manifest, "job": job, "references": references, "reference_bindings": bindings,
@@ -230,18 +277,21 @@ def _query_data(*, submit, submit_raw, permit, query_index):
     from core.execution.image_receipts import decode_submit
 
     parent = submit.frozen() if isinstance(submit, FrozenImageRequest) else json_copy(submit, limit=MAX_DESCRIPTOR_BYTES)
-    require(type(parent) is dict and parent.get("kind") == KIND and parent.get("method") == "POST" and parent.get("parent_submit") is None)
+    require(type(parent) is dict and parent.get("kind") in {KIND, RESPONSE_KIND}
+            and parent.get("method") == "POST" and parent.get("parent_submit") is None)
     parent_request = FrozenImageRequest.from_frozen(parent)
     parent = parent_request.frozen()
     raw = json_copy(submit_raw, limit=2 * 1048576)
     receipt = decode_submit(parent_request, raw)
     require(receipt["classification"] == "accepted")
     accepted = receipt["accepted_task_id"]
-    permit = _model(permit, ImageContinuationPermit)
+    permit = _model(permit, ImageResponseContinuationPermit if parent["kind"] == RESPONSE_KIND else ImageContinuationPermit)
     require(type(query_index) is int and query_index >= 1 and permit["action"] == "query" and permit["query_index"] == query_index)
     _authority(parent["policy"], parent["budget_anchor"], permit, parent["continuation_authority"])
     _source_identity(permit, parent["reference_bindings"])
     changed = {"operation_id", "capture_id", "nonce", "action", "query_index", "paid_calls", "risk_cny", "issued_at", "deadline_at", "permit_hash"}
+    if parent["kind"] == RESPONSE_KIND:
+        changed.add("response_deadline_at")
     require(all(permit[field] == value for field, value in parent["permit"].items() if field not in changed))
     require(all(permit[field] != parent["permit"][field] for field in ("operation_id", "capture_id", "nonce")))
     require(timestamp(permit["issued_at"]) >= timestamp(receipt["received_at"]))
@@ -251,8 +301,8 @@ def _query_data(*, submit, submit_raw, permit, query_index):
 
 
 def rebuild(value):
-    """Reconstruct every v2 field; caller checks the complete descriptor seal."""
-    require(type(value) is dict and value.get("kind") == KIND)
+    """Reconstruct the native version; caller checks the complete descriptor seal."""
+    require(type(value) is dict and value.get("kind") in {KIND, RESPONSE_KIND})
     if value.get("method") == "POST":
         return _submit_data(policy=value["policy"], budget_anchor=value["budget_anchor"], permit=value["permit"],
             continuation_authority=value["continuation_authority"], asset_input=value["asset_input"], manifest=value["manifest"],

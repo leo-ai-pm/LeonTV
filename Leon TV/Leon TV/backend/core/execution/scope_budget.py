@@ -132,7 +132,7 @@ def _validate_paid_intents(payload, previous):
         if additions:
             require(not account_halted(previous, account_id) and not account_halted(payload, account_id))
             candidate = payload.get("media", {}).get("operation:" + additions[0][1]) if additions[0][0] == "media" else None
-            if candidate is not None and candidate["descriptor"]["kind"] == "controlled_image_http_v2":
+            if candidate is not None and candidate["descriptor"]["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
                 from core.execution.media_continuation_gate import candidate_gate
                 candidate_gate(previous, candidate)
                 candidate_gate(payload, candidate, exclude_candidate=True)

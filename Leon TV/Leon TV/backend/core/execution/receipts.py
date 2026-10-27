@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.creator.store import ID_RE, SHA_RE, CreatorBriefStore, CreatorError, digest, utc_now
+from core.execution.image_response_lifecycle import IMAGE_KIND, response_deadline
 from core.execution.policy import now
 from core.execution.transport import TRANSPORT_DIAGNOSTIC_PHASES
 from core.harness.store import unlock_file
@@ -229,9 +230,14 @@ class ReceiptStore(CreatorBriefStore):
         return read_json(self.path(filename))
 
     def prepare(self, binding, payload_hash, capability_hash, observer_until, cleanup_cutoff):
+        deadline = response_deadline(binding)
+        version = 2 if binding.get("kind") == IMAGE_KIND else 1
+        require(timestamp(observer_until) <= deadline < timestamp(cleanup_cutoff))
+        if version == 2:
+            require((timestamp(cleanup_cutoff) - deadline).total_seconds() == 5)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         op = self.operation(binding["operation_id"])
-        value = seal({"version": 1, "binding": binding, "binding_hash": digest(binding), "payload_hash": payload_hash,
+        value = seal({"version": version, "binding": binding, "binding_hash": digest(binding), "payload_hash": payload_hash,
             "capability_hash": capability_hash, "observer_until": observer_until, "cleanup_cutoff": cleanup_cutoff,
             "observer_pid": os.getpid(), "created_at": utc_now()}, "claim_hash")
         quota = receipt_lock(self.quota_root / ".quota.lock")
@@ -248,12 +254,16 @@ class ReceiptStore(CreatorBriefStore):
         value = self.read("claim.json")
         require(set(value) == {"version", "binding", "binding_hash", "payload_hash", "capability_hash", "observer_until", "cleanup_cutoff", "observer_pid", "created_at", "claim_hash"})
         check_seal(value, "claim_hash")
-        require(type(value["version"]) is int and value["version"] == 1 and value["binding_hash"] == digest(value["binding"]))
+        deadline = response_deadline(value["binding"])
+        version = 2 if value["binding"].get("kind") == IMAGE_KIND else 1
+        require(type(value["version"]) is int and value["version"] == version and value["binding_hash"] == digest(value["binding"]))
         if binding is not None and value["binding"] != binding:
             raise BindingMismatch()
         for name in ["payload_hash", "capability_hash"]:
             require(isinstance(value[name], str) and bool(SHA_RE.fullmatch(value[name])))
-        require(timestamp(value["observer_until"]) <= timestamp(value["binding"]["deadline_at"]) < timestamp(value["cleanup_cutoff"]))
+        require(timestamp(value["observer_until"]) <= deadline < timestamp(value["cleanup_cutoff"]))
+        if version == 2:
+            require((timestamp(value["cleanup_cutoff"]) - deadline).total_seconds() == 5)
         require(type(value["observer_pid"]) is int and value["observer_pid"] > 0)
         require(timestamp(value["created_at"]) <= now())
         return value

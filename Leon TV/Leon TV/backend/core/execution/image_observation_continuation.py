@@ -76,7 +76,7 @@ def _source(payload, operation_id):
     require(op["kind"] == "operation" and op["status"] == "accepted" and op["capture_started_at"] is not None
         and op["raw"] is not None and op["receipt"] is not None)
     data = FrozenImageRequest.from_frozen(op["descriptor"]).frozen()
-    require(data["kind"] == "controlled_image_http_v2" and data["method"] == "POST")
+    require(data["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"} and data["method"] == "POST")
     parent = authority_for(payload, data["permit"]["runtime_activation_id"])
     require(_same(parent, data["continuation_authority"]))
     receipt = decode_submit(FrozenImageRequest.from_frozen(data), op["raw"])

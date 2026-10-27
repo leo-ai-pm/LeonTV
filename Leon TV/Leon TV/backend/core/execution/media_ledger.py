@@ -339,7 +339,7 @@ def _validate(payload, previous, *, historical=False):
                     and digest(data["budget_anchor"]) == digest(scope["anchor"]))
                 activation = media[ACTIVATION + ":" + authority["activation_id"]]
                 require(timestamp(activation["created_at"]) <= timestamp(permit["issued_at"]))
-            elif data["kind"] == "controlled_image_http_v2":
+            elif data["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
                 from core.execution.image_runtime_continuation import authority_for
                 authority = authority_for(payload, permit["runtime_activation_id"])
                 require(digest(data["continuation_authority"]) == digest(authority)
@@ -372,7 +372,7 @@ def _validate(payload, previous, *, historical=False):
                 require(record["shot_id"] == permit["shot_id"] and record["submission_index"] == permit["scope_submission_index"])
                 require(digest(data["references"]) == digest(operation_references(payload, scope, record)))
                 sources = reference_sources(payload, scope, record["shot_id"])
-                if data["kind"] == "controlled_image_http_v2":
+                if data["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
                     from core.execution.image_continuation_policy import bind_reference_sources
                     require(digest(data["reference_bindings"]) == digest(bind_reference_sources(sources, data["references"])))
                 for source in sources:
@@ -441,7 +441,7 @@ def _validate(payload, previous, *, historical=False):
                 require(request["references"] == [] or digest(request["references"]) == digest(target["descriptor"]["references"]))
             elif verb == "query":
                 expected.update(operation_id=target["operation_id"])
-            if verb in {"submit", "query"} and target["descriptor"]["kind"] == "controlled_image_http_v2":
+            if verb in {"submit", "query"} and target["descriptor"]["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
                 expected["runtime_activation_id"] = target["descriptor"]["permit"]["runtime_activation_id"]
             if verb == "query" and target["descriptor"]["kind"] == "controlled_image_observation_http_v1":
                 expected["observation_activation_id"] = target["descriptor"]["permit"]["observation_activation_id"]
@@ -453,7 +453,7 @@ def _validate(payload, previous, *, historical=False):
     for scope in scopes:
         operations = sorted((op for op in records(payload, "operation") if op["scope_id"] == scope["id"]), key=lambda op: op["submission_index"])
         require([op["submission_index"] for op in operations] == list(range(1, len(operations) + 1)))
-        continued = [op for op in operations if op["descriptor"]["kind"] == "controlled_image_http_v2"]
+        continued = [op for op in operations if op["descriptor"]["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}]
         require(len(operations) <= scope["policy"]["max_submissions"] + bool(continued))
         if continued:
             for shot_id in {op["shot_id"] for op in operations}:
@@ -461,7 +461,7 @@ def _validate(payload, previous, *, historical=False):
                 if len(same_shot) > 1:
                     require(len(same_shot) == 2)
                     old, replacement = same_shot
-                    require(old["status"] == "unknown" and replacement["descriptor"]["kind"] == "controlled_image_http_v2")
+                    require(old["status"] == "unknown" and replacement["descriptor"]["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"})
                     require(replacement["descriptor"]["permit"]["replacement_of"] == old["id"]
                             and replacement["descriptor"]["permit"]["attempt_version"] == 2)
         else:
@@ -504,7 +504,7 @@ def _validate(payload, previous, *, historical=False):
                 if kind == "operation":
                     require(not unresolved_text_claims(previous))
                     prior = [op for op in records(previous, "operation") if old["scope:" + op["scope_id"]]["account_id"] == scope["account_id"]]
-                    if record["descriptor"]["kind"] == "controlled_image_http_v2":
+                    if record["descriptor"]["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
                         from core.execution.media_continuation_gate import candidate_gate
                         candidate_gate(previous, record)
                         candidate_gate(payload, record, exclude_candidate=True)
@@ -544,7 +544,7 @@ def _validate(payload, previous, *, historical=False):
             if halted or unknown:
                 require(all(op_id in previous["operations"] for op_id, op in payload["operations"].items() if op["account_id"] == account_id))
                 require(not halted or not new_images)
-                require(all(op["descriptor"]["kind"] == "controlled_image_http_v2" for op in new_images))
+                require(all(op["descriptor"]["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"} for op in new_images))
 
 
 def validate(payload, previous=None, *, historical=False):

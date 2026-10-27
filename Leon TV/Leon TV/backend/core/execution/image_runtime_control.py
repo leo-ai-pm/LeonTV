@@ -104,7 +104,7 @@ def runtime_status(control, operation_id=None):
             reason = "SCOPE_CALL_LIMIT"
         else:
             reason = "RESERVE_EXACT_CANDIDATE"
-    result = {"mode": control.document.mode, "runtime_mode": "image_continuation_v2",
+    result = {"mode": control.document.mode, "runtime_mode": "image_continuation_v3" if authority["schema_version"] == 3 else "image_continuation_v2",
         "runtime_authority_valid": valid, "dispatch_available": ready,
         "blocked_reason": None if ready else reason,
         "global_unknown_retained": has_pending_unknown(payload, scope["account_id"]),

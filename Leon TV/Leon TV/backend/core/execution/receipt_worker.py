@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from core.creator.store import digest, utc_now
+from core.execution.image_response_lifecycle import IMAGE_KIND
 from core.execution.policy import now
 from core.execution.receipts import (
     MAX_BODY,
@@ -33,7 +34,7 @@ def collect(store, claim, job):
         operation, policy = job["operation"], job["policy"]
         binding = binding_for(operation)
         endpoint, wire, validation_only = policy["endpoint"], operation["wire"], policy["validation_only"]
-    elif job["kind"] in {"controlled_image_http_v1", "controlled_image_http_v2", "controlled_image_observation_http_v1"}:
+    elif job["kind"] in {"controlled_image_http_v1", "controlled_image_http_v2", IMAGE_KIND, "controlled_image_observation_http_v1"}:
         from core.execution.image_capture import worker_request
 
         binding, endpoint, wire, validation_only, method, body_limit = worker_request(job, claim)
@@ -107,7 +108,8 @@ def main():
         claim = store.claim()
         # This timer exists before stdin is read and survives the observer.
         cutoff = timestamp(claim["cleanup_cutoff"])
-        elapsed_limit = time.monotonic() + min(150, max(0, (cutoff - now()).total_seconds()))
+        lifetime_limit = 305 if claim["binding"].get("kind") == IMAGE_KIND else 150
+        elapsed_limit = time.monotonic() + min(lifetime_limit, max(0, (cutoff - now()).total_seconds()))
 
         def watchdog():
             while True:

@@ -24,6 +24,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 真实续接派发 | D39原执行器单次HTTP200、精确task SUCCESS及¥0.04原生核费；同intent／预算不变 | reserve入口121.64秒未达目标，尚无新GET或图片交付；本地重复校验待优化，跨版本仅GET续查合同待实现 |
 | 已受理任务观察续接 | D40独立仅GET批准，原collector取回第二镜，65.81秒入口链路，技术交付／重放通过 | 新生成POST权限、全部生成性能已验收、视觉质量或完整自主制作通过 |
 | 图片提交单次校验 | D41普通v2每次权限决定只读一个新鲜snapshot，入口83.78秒；原响应超时后停为unknown | 原请求已确认受理、平台同时间窗候选可直接替代回执、第三镜已交付或第四镜可继续 |
+| 图片响应生命周期 | D42新报价／authority／permit／claim明确区分提交与响应截止，原生链路已接线 | 旧unknown自动恢复、第三镜已交付、新合同真实慢响应验收通过或增加调用额度 |
 | 内部参考图转换 | 独立报价绑定转换profile／encoder，原图与衍生证明并存；JPEG需显式允许 | 技术转换即视觉通过、自动裁剪或任意压缩 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
@@ -43,7 +44,9 @@ D39在原任务追加同intent的lease批准后，用原会话派发一次第二
 
 D40的 `image_observation_continuation/policy/control/runtime/operator` 在原media命名空间批准仅GET观察；compact descriptor保留原POST一次，原collector核对完整受理回执。每个Key边界和最终采集分别获取新鲜snapshot，同一次判断内做纯候选检查；普通v2路径保持。引用证明仅在单次历史校验内作有界纯复用。实际第二镜原PNG720×1280已交付，原生69帧／POST3／GET3／交付2／费用2，父46条与预算保持；观察GET入口65.808秒、签发51.633秒，均在120秒内。普通POST仍须优化后再生成后两镜，质量及人工验收待完成。[D40合同](./IMAGE-OBSERVATION-CONTINUATION-API.md) · [实测与边界](./IMAGE-OBSERVATION-CONTINUATION-VALIDATION.md)。
 
-D41将同次snapshot复用接入普通v2 POST，显式control与root／activation／guard方法绑定；三个安全边界各自重新读取，事务payload仍须与真实head一致。无新生产模块，4个原模块修改，2个测试文件新增。第三镜真实提交到collector为83.780秒，原120秒permit未延长；剩余响应观察时间约56.165秒后collector按绝对期限关闭，无原raw。新增unknown阻止第四镜，平台SUCCESS与502候选缺客户端标识，仅作未绑定观察保留。下一步须分离新派发许可与响应观察／结算生命周期，旧permit和unknown不追溯改写。[D41证据及边界](./IMAGE-SUBMIT-SNAPSHOT-VALIDATION.md)。
+D41将同次snapshot复用接入普通v2 POST，显式control与root／activation／guard方法绑定；三个安全边界各自重新读取，事务payload仍须与真实head一致。无新生产模块，4个原模块修改，2个测试文件新增。第三镜真实提交到collector为83.780秒，原120秒permit未延长；剩余响应观察时间约56.165秒后collector按绝对期限关闭，无原raw。新增unknown阻止第四镜，平台SUCCESS与502候选缺客户端标识，仅作未绑定观察保留。此处暴露的期限耦合由D42的新版本合同处理，旧permit和unknown不追溯改写。[D41证据及边界](./IMAGE-SUBMIT-SNAPSHOT-VALIDATION.md)。
+
+D42在原运行报价中增加明确响应策略：v3 authority、schema4 permit与claim2绑定响应窗口，派发保持120秒，响应截止最多为签发后300秒。原native账本、candidate gate和父资金继续生效；旧合同原样可重建，新unknown即使换窗口或续期也不解除。实际任务74帧与2／4交付保持，未新增真实生成，下一步是第三镜精确对账与未知风险处置。[D42合同](./IMAGE-RESPONSE-LIFECYCLE-API.md) · [验收](./IMAGE-RESPONSE-LIFECYCLE-VALIDATION.md)。
 
 ## 现役创作链路
 

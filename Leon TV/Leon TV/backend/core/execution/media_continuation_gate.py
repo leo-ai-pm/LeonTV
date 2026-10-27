@@ -10,7 +10,7 @@ def require(value):
 
 
 def is_continuation(record):
-    return record.get("descriptor", {}).get("kind") == "controlled_image_http_v2"
+    return record.get("descriptor", {}).get("kind") in {"controlled_image_http_v2", "controlled_image_http_v3"}
 
 
 def candidate_gate(payload, candidate, *, exclude_candidate=False):

@@ -48,6 +48,8 @@ def _status(control, result=None, resource=None):
             valid = False
         value.update(journal_stage="runtime_revision_recorded", current_authority_valid=valid,
             revision_sequence=authority["revision_sequence"], cumulative_max_submissions=authority["max_cumulative_submissions"])
+        if "response_policy" in authority:
+            value["response_policy"] = authority["response_policy"]
     else:
         value.update(journal_stage="not_activated", current_authority_valid=False)
     if result is not None:
@@ -56,6 +58,11 @@ def _status(control, result=None, resource=None):
         value.update(resource_kind=record["kind"], resource_id=record["id"], replayed=result["replayed"],
             disclosure_hash=quote["disclosure_hash"], code_manifest_hash=quote["disclosure"]["code_manifest_hash"],
             valid_until=quote["disclosure"]["effective_policy"]["valid_until"])
+        # The quote response shows the concrete contract before activation.
+        if "response_policy" in quote["disclosure"]:
+            value["response_policy"] = quote["disclosure"]["response_policy"]
+        else:
+            value.pop("response_policy", None)
     return value
 
 
@@ -64,12 +71,13 @@ def main(argv=None):
     parser.add_argument("command", nargs="?", choices=("status", "quote", "activate"), default="status")
     parser.add_argument("--control")
     parser.add_argument("--valid-until")
+    parser.add_argument("--response-window-seconds", type=int)
     parser.add_argument("--quote")
     parser.add_argument("--disclosure-hash")
     parser.add_argument("--consent", action="store_true")
     try:
         args = parser.parse_args(argv)
-        extras = (args.valid_until, args.quote, args.disclosure_hash, args.consent)
+        extras = (args.valid_until, args.quote, args.disclosure_hash, args.consent, args.response_window_seconds is not None)
         if not args.control:
             require(args.command == "status" and not any(extras))
             value = {"mode": "off", **_flags()}
@@ -82,10 +90,10 @@ def main(argv=None):
                 value = _status(control)
             elif args.command == "quote":
                 require(bool(args.valid_until) and not any((args.quote, args.disclosure_hash, args.consent)))
-                result = quote_runtime_continuation(control, valid_until=args.valid_until)
+                result = quote_runtime_continuation(control, valid_until=args.valid_until, response_window_seconds=args.response_window_seconds)
                 value = _status(control, result, "quote")
             else:
-                require(bool(args.quote) and bool(args.disclosure_hash) and args.consent is True and not args.valid_until)
+                require(bool(args.quote) and bool(args.disclosure_hash) and args.consent is True and not args.valid_until and args.response_window_seconds is None)
                 result = activate_runtime_continuation(control, args.quote,
                     disclosure_hash=args.disclosure_hash, consent=args.consent)
                 value = _status(control, result, "activation")

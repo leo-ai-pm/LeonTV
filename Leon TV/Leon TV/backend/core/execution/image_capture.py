@@ -7,6 +7,7 @@ import copy
 from pathlib import Path
 
 from core.creator.store import CreatorError, digest
+from core.execution.image_response_lifecycle import IMAGE_KIND, response_deadline
 from core.execution.media_failure_phase import capture_stage
 from core.execution.policy import now
 from core.execution.receipt_transport import capture_once
@@ -14,7 +15,7 @@ from core.execution.receipts import ReceiptCaptureSettings, ReceiptStore, timest
 from core.planner.review import json_copy
 
 KIND = "controlled_image_http_v1"
-KINDS = {KIND, "controlled_image_http_v2", "controlled_image_observation_http_v1"}
+KINDS = {KIND, "controlled_image_http_v2", IMAGE_KIND, "controlled_image_observation_http_v1"}
 
 
 def rejected():
@@ -98,7 +99,7 @@ def worker_request(job, claim):
         binding = request.binding()
         require(job["kind"] == binding["kind"] == request.frozen()["kind"])
         require(job["binding"] == claim["binding"] == binding)
-        require((timestamp(claim["cleanup_cutoff"]) - timestamp(binding["deadline_at"])).total_seconds() == 5)
+        require((timestamp(claim["cleanup_cutoff"]) - response_deadline(binding)).total_seconds() == 5)
         require(timestamp(request.frozen()["permit"]["issued_at"]) <= timestamp(claim["created_at"]))
         if not request.validation_only:
             require(job["worker_factory"] is None and not job["worker_options"])

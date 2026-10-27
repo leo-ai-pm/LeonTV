@@ -66,7 +66,7 @@ def _parent(submit, raw, authority):
     from core.execution.image_receipts import decode_submit
 
     parent = submit.frozen() if type(submit) is FrozenImageRequest else json_copy(submit, limit=MAX_DESCRIPTOR_BYTES)
-    require(type(parent) is dict and parent.get("kind") == "controlled_image_http_v2"
+    require(type(parent) is dict and parent.get("kind") in {"controlled_image_http_v2", "controlled_image_http_v3"}
             and parent.get("method") == "POST" and parent.get("parent_submit") is None)
     checked = FrozenImageRequest.from_frozen(parent)
     parent = checked.frozen()

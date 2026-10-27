@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from PIL import Image
 
 from core.creator.store import CreatorError, digest
+from core.execution.image_response_lifecycle import IMAGE_KIND, response_deadline
 from core.execution.receipts import raw_body, timestamp
 from core.planner.protocol import parse_json
 
@@ -36,6 +37,18 @@ def _request(request, method):
     checked = request.frozen()
     _require(checked["method"] == method)
     return checked
+
+
+def _response_deadline(request):
+    # _request already reconstructed this descriptor. Do not repeat its complete
+    # parent/image validation just to select the frozen response boundary.
+    permit = request["permit"]
+    binding = {"kind": request["kind"], "deadline_at": permit["deadline_at"]}
+    if request["kind"] == IMAGE_KIND:
+        binding.update(response_deadline_at=permit["response_deadline_at"],
+            response_contract_hash=permit["response_contract_hash"],
+            response_window_seconds=request["continuation_authority"]["response_policy"]["response_window_seconds"])
+    return response_deadline(binding)
 
 
 def _raw(raw, request):
@@ -124,7 +137,7 @@ def decode_submit(request, raw):
     except CreatorError:
         pass
     if (result["request_id_status"] in {"conflicting", "invalid"}
-            or timestamp(raw["received_at"]) > timestamp(request["permit"]["deadline_at"])):
+            or timestamp(raw["received_at"]) > _response_deadline(request)):
         result.update(classification="unconfirmed", accepted_task_id=None)
     return _sealed(result)
 
@@ -167,7 +180,7 @@ def decode_query(request, raw):
     result["query_request_id"], query_identity_status = _request_identity(raw, value)
     try:
         _require(query_identity_status not in {"conflicting", "invalid"})
-        _require(timestamp(raw["received_at"]) <= timestamp(request["permit"]["deadline_at"]))
+        _require(timestamp(raw["received_at"]) <= _response_deadline(request))
         item, success = _envelope(value)
         _require(200 <= raw["http_status"] < 300 and success)
         _require(_task_ids(value, item) == submitted["accepted_task_id"])

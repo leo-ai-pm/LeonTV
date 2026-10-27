@@ -12,6 +12,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from core.creator.store import digest, utc_now
+from core.execution.image_response_lifecycle import IMAGE_KIND, response_deadline
 from core.execution.media_failure_phase import capture_stage
 from core.execution.policy import now
 from core.execution.receipts import (
@@ -21,7 +22,6 @@ from core.execution.receipts import (
     binding_for,
     require,
     seal,
-    timestamp,
 )
 from core.execution.transport import ControlledTransport, ResponseUnconfirmed
 
@@ -58,7 +58,8 @@ class CapturedTransport(ControlledTransport):
 def capture_once(receipt_store, binding, frozen_job, api_key, settings):
     """Internal delivery seam. The server adapter must verify authority first."""
     capture_stage("collector_ipc")
-    deadline = timestamp(binding["deadline_at"])
+    deadline = response_deadline(binding)
+    require(binding.get("kind") != IMAGE_KIND or settings.cleanup_grace_seconds == 5)
     observer_until = min(deadline, now() + timedelta(seconds=settings.observation_wait_seconds)) if settings.observation_wait_seconds is not None else deadline
     cutoff = deadline + timedelta(seconds=settings.cleanup_grace_seconds)
     job = copy.deepcopy(frozen_job)

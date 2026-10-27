@@ -140,3 +140,8 @@ python -m core.execution.image_operator --control CONTROL --runtime-continuation
 只有实际HTTP回执、精确费用证明、交付技术核验、整组视觉Reviewer／必要返工以及人工接受分别成立，才能推进对应生产阶段。本合同不宣称完整自主制作、最终成片质量或Personal Agent已完成。
 
 后续[D39真实派发与费用验收](./IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)记录单次真实受理、入口与签发两种时间口径及尚未查询交付的边界；本D38合同和历史测试结果不被改写为完整生产验收。
+
+
+## D42显式响应合同
+
+`quote_runtime_continuation(..., response_window_seconds=180)` 可报价新v3合同，省略参数保持原v2形状与语义。完整响应策略必须在原quote中披露并批准；不是改变旧policy的默认值。新permit绑定120秒提交期限与独立响应截止，现有POST／GET／预算／unknown门禁仍有效。[详细合同](./IMAGE-RESPONSE-LIFECYCLE-API.md) · [验证与未完成事项](./IMAGE-RESPONSE-LIFECYCLE-VALIDATION.md)。
