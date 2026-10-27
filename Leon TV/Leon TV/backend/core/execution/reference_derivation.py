@@ -4,7 +4,10 @@ import copy
 import hashlib
 import io
 import json
+import threading
 import warnings
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from PIL import Image, features
 from PIL import __version__ as pillow_version
@@ -25,6 +28,42 @@ PROOF_FIELDS = {"schema_version", "kind", "derivation_id", "scope_id", "task_id"
                 "source_sha256", "source_size_bytes", "source_format", "source_decoded_pixel_sha256", "profile_hash", "representation_version",
                 "encoder", "transform", "output_bytes_base64", "output_sha256", "output_size_bytes", "output_format", "output_mime_type",
                 "width", "height", "output_decoded_pixel_sha256", "pixel_equivalent", "local_attempts", "visual_quality", "derivation_hash"}
+_REFERENCE_PROOFS = ContextVar("image_reference_snapshot_proofs", default=None)
+_MAX_REFERENCE_PROOFS = 32
+_MAX_REFERENCE_PROOF_BYTES = 16 * 1048576
+
+
+@contextmanager
+def _reference_snapshot():
+    """Retain successful pure evidence proofs for one synchronous read only."""
+    facts = {"inputs": {}, "bytes": 0, "thread": threading.get_ident(), "active": True}
+    token = _REFERENCE_PROOFS.set(facts)
+    try:
+        yield
+    finally:
+        # Explicit clearing also invalidates a context copied during this read.
+        facts["active"] = False
+        facts["inputs"].clear()
+        facts["bytes"] = 0
+        _REFERENCE_PROOFS.reset(token)
+
+
+def _reference_proof_input(values):
+    facts = _REFERENCE_PROOFS.get()
+    if facts is None or not facts["active"] or facts["thread"] != threading.get_ident():
+        return None
+    try:
+        # Strict JSON makes lists, tuples, bools and numbers non-interchangeable.
+        # The validator consumes this same defensive snapshot, never a mutable
+        # caller object whose bytes could drift after key construction.
+        checked = json_copy(values, limit=_MAX_REFERENCE_PROOF_BYTES)
+        encoder = json_copy(encoder_identity())
+        key = json.dumps({"inputs": checked, "actual_encoder": encoder}, ensure_ascii=False,
+                         allow_nan=False, sort_keys=True, separators=(",", ":"))
+        return facts, key, checked, encoder
+    except Exception:
+        # Unsupported or oversized keys still run the original full validator.
+        return None
 
 
 def fail(code="MEDIA_REFERENCE_DERIVATION_INVALID"):
@@ -206,6 +245,30 @@ def derive_references(*, profile, sources, target_job, policy, scope_id, task_id
 
 
 def references_from_proofs(*, profile, sources, target_job, policy, scope_id, task_id, operation_id, proofs, reencode=False):
+    """Validate exact evidence, reusing only completed same-read pure proofs."""
+    require(type(reencode) is bool)
+    values = {"profile": profile, "sources": sources, "target_job": target_job, "policy": policy,
+              "scope_id": scope_id, "task_id": task_id, "operation_id": operation_id,
+              "proofs": proofs, "reencode": reencode}
+    snapshot = _reference_proof_input(values)
+    if snapshot is None:
+        return _references_from_proofs(**values)
+    facts, key, checked, encoder = snapshot
+    if key in facts["inputs"]:
+        return copy.deepcopy(facts["inputs"][key])
+    result = _references_from_proofs(**checked)
+    # No exception or incomplete proof reaches the table. Encoder drift during
+    # validation makes this result ineligible for reuse; it never grants IO.
+    if encoder == encoder_identity() and len(facts["inputs"]) < _MAX_REFERENCE_PROOFS:
+        size = len(key.encode("utf-8")) + len(json.dumps(result, ensure_ascii=False,
+                   allow_nan=False, separators=(",", ":")).encode("utf-8"))
+        if facts["bytes"] + size <= _MAX_REFERENCE_PROOF_BYTES:
+            facts["inputs"][key] = copy.deepcopy(result)
+            facts["bytes"] += size
+    return result
+
+
+def _references_from_proofs(*, profile, sources, target_job, policy, scope_id, task_id, operation_id, proofs, reencode=False):
     """Validate stored representations; historical replay never overwrites bytes."""
     try:
         profile = checked_profile(profile)

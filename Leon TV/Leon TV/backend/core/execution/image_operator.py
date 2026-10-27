@@ -48,9 +48,13 @@ class _BoundImageCapture:
 
     def capture(self, request, _runtime_key):
         capture_stage("control_before_key")
-        self.control.verify_authority(for_dispatch=True)
-        capture_stage("native_before_key")
-        require(self.media._capture_guard(request.frozen()) is True)
+        observation = getattr(self.control, "observation_activation_id", None) is not None
+        if observation:
+            require(self.control.guard_capture(self.media, request.frozen(), native_stage="native_before_key") is True)
+        else:
+            self.control.verify_authority(for_dispatch=True)
+            capture_stage("native_before_key")
+            require(self.media._capture_guard(request.frozen()) is True)
         capture_stage("deadline_before_key")
         require(now() < timestamp(request.deadline_at))
         require(request.validation_only is self.control.document.policy["validation_only"])
@@ -67,9 +71,12 @@ class _BoundImageCapture:
         # Loading a credential is not authority. Recheck the actual persisted
         # reservation and current control after it, before the original capture.
         capture_stage("control_after_key")
-        self.control.verify_authority(for_dispatch=True)
-        capture_stage("native_after_key")
-        require(self.media._capture_guard(request.frozen()) is True)
+        if observation:
+            require(self.control.guard_capture(self.media, request.frozen(), native_stage="native_after_key") is True)
+        else:
+            self.control.verify_authority(for_dispatch=True)
+            capture_stage("native_after_key")
+            require(self.media._capture_guard(request.frozen()) is True)
         capture_stage("deadline_after_key")
         require(now() < timestamp(request.deadline_at))
         return self.capture_adapter.capture(request, key)
@@ -106,7 +113,13 @@ def build_image_session(control, *, receipt_capture=None, credential_loader=None
         if getattr(control, "runtime_activation_id", None) is not None:
             continuation = {"continuation_activation_id": control.runtime_activation_id,
                 "continuation_guard": control.guard_runtime}
-        media = media_from_asset_design(runtime, control.document.admission.task_id,
+        factory = media_from_asset_design
+        if getattr(control, "observation_activation_id", None) is not None:
+            from core.execution.image_observation_runtime import observation_from_asset_design
+
+            factory = observation_from_asset_design
+            continuation = {"observation_control": control}
+        media = factory(runtime, control.document.admission.task_id,
             control.document.admission.asset_operation_id, policy=control.document.policy,
             budget_anchor=control.document.budget_anchor, authority_guard=control.guard,
             fee_source=control.document.fee_source.model_dump(), reference_profile=control.document.reference_profile,
@@ -136,6 +149,18 @@ def _admit_record(control, payload, kind, record_id):
     record = payload.get("media", {}).get(kind + ":" + record_id)
     require(record is not None and record["task_id"] == control.document.admission.task_id)
     require(_matching_scope(control, payload["media"]["scope:" + record["scope_id"]]))
+    if getattr(control, "observation_activation_id", None) is not None:
+        from core.execution.image_observation_continuation import authority_for
+
+        authority = authority_for(payload, control.observation_activation_id)
+        if kind == "operation":
+            require(record_id == authority["source_operation_id"])
+        elif kind == "query":
+            require(record["operation_id"] == authority["source_operation_id"]
+                and record["descriptor"]["kind"] == "controlled_image_observation_http_v1"
+                and record["descriptor"]["permit"]["observation_activation_id"] == authority["activation_id"])
+        else:
+            raise unavailable()
     return record
 
 
@@ -150,6 +175,10 @@ def _resource(record):
 
 
 def _status(control, operation_id=None):
+    if getattr(control, "observation_activation_id", None) is not None:
+        from core.execution.image_observation_control import observation_status
+
+        return observation_status(control, operation_id)
     if getattr(control, "runtime_activation_id", None) is not None:
         from core.execution.image_runtime_control import runtime_status
         return runtime_status(control, operation_id)
@@ -337,12 +366,14 @@ def parser():
     result.add_argument("--control")
     result.add_argument("--continuation")
     result.add_argument("--runtime-continuation")
+    result.add_argument("--observation")
     subs = result.add_subparsers(dest="command", required=True)
     for name in ("status", "quote", "grant", "reserve", "start", "query", "recover", "fees-import", "task-fees-import", "legacy-fees-import", "delivery-import", "revoke"):
         command = subs.add_parser(name)
         command.add_argument("--control", default=argparse.SUPPRESS)
         command.add_argument("--continuation", default=argparse.SUPPRESS)
         command.add_argument("--runtime-continuation", default=argparse.SUPPRESS)
+        command.add_argument("--observation", default=argparse.SUPPRESS)
         command.add_argument("--task")
         if name in {"quote", "grant", "reserve", "query"}:
             command.add_argument("--key", required=True)
@@ -372,11 +403,11 @@ def main(argv=None):
     try:
         args = parser().parse_args(argv)
         if not args.control:
-            require(args.command == "status" and args.continuation is None and args.runtime_continuation is None)
+            require(args.command == "status" and args.continuation is None and args.runtime_continuation is None and args.observation is None)
             output = {"mode": "off", "dispatch_available": False, "automatic_followup_calls": 0}
         else:
             control = read_image_control(Path(args.control).expanduser().absolute(), BACKEND)
-            require(args.continuation is None or args.runtime_continuation is None)
+            require(sum(value is not None for value in (args.continuation, args.runtime_continuation, args.observation)) <= 1)
             if args.continuation is not None:
                 from core.execution.image_code_continuation import ContinuedImageControl
                 control = ContinuedImageControl(control, args.continuation)
@@ -384,6 +415,11 @@ def main(argv=None):
                 require(args.command not in {"quote", "grant", "legacy-fees-import"})
                 from core.execution.image_runtime_control import RuntimeContinuedImageControl
                 control = RuntimeContinuedImageControl(control, args.runtime_continuation)
+            if args.observation is not None:
+                require(args.command in {"status", "query", "recover", "task-fees-import", "delivery-import"})
+                from core.execution.image_observation_control import ImageObservationControl
+
+                control = ImageObservationControl(control, args.observation)
             output = execute(control, args.command, args)
         print(json.dumps(output, ensure_ascii=False))
         return 0

@@ -305,9 +305,12 @@ def _descriptor_snapshot():
     No authority, time, filesystem or credential result is retained. Every new
     journal snapshot gets a fresh set, including nested reconstructions.
     """
+    from core.execution.reference_derivation import _reference_snapshot
+
     token = _SNAPSHOT_PROOFS.set({"inputs": set(), "bytes": 0})
     try:
-        yield
+        with _reference_snapshot():
+            yield
     finally:
         _SNAPSHOT_PROOFS.reset(token)
 
@@ -324,7 +327,11 @@ def _checked(value):
             if serialized in proofs["inputs"]:
                 return value
         require(type(value) is dict and value.get("descriptor_hash") == digest({key: item for key, item in value.items() if key != "descriptor_hash"}))
-        if value.get("kind") == "controlled_image_http_v2":
+        if value.get("kind") == "controlled_image_observation_http_v1":
+            from core.execution.image_observation_policy import rebuild
+
+            rebuilt = rebuild(value)
+        elif value.get("kind") == "controlled_image_http_v2":
             from core.execution.image_continuation_policy import rebuild
 
             rebuilt = rebuild(value)
@@ -362,6 +369,8 @@ class FrozenImageRequest:
         permit = value["permit"]
         proof_fields = {key: item for key, item in permit.items() if key.endswith("_hash")}
         continuation = {key: permit[key] for key in ("runtime_activation_id", "runtime_revision_sequence", "attempt_version", "replacement_of")} if value["kind"] == "controlled_image_http_v2" else {}
+        if value["kind"] == "controlled_image_observation_http_v1":
+            continuation = {key: permit[key] for key in ("observation_activation_id", "observation_revision_sequence", "source_operation_id")}
         return {"kind": value["kind"], "scope": value["scope"], "operation_id": permit["operation_id"], "task_id": permit["task_id"],
             "capture_id": permit["capture_id"], "nonce": permit["nonce"], "deadline_at": permit["deadline_at"],
             "action": permit["action"], "method": value["method"], "descriptor_hash": value["descriptor_hash"],

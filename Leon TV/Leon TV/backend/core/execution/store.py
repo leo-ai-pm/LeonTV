@@ -164,6 +164,10 @@ def _validate_state(state):
            for record in payload.get("media", {}).values()):
         from core.execution.image_runtime_continuation import validate_history
         validate_history(state, payload)
+    if any(record["kind"] in {"image_observation_quote", "image_observation_activation"}
+           for record in payload.get("media", {}).values()):
+        from core.execution.image_observation_continuation import validate_history
+        validate_history(state, payload)
     return payload
 
 
