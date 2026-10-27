@@ -62,3 +62,5 @@ GET描述符还保留完整父POST及引用；新GET意图会继续增加每次�
 代码变化或lease到期后，当前v2合同拒绝用新runtime批准直接查询旧POST。因此修复还须包含独立、显式且仅GET的观察续接：绑定原受理POST的descriptor、raw、task身份、原grant／资金、当前精确代码／有效期和累计查询次数；保留原请求、旧unknown、风险与调用消耗。它不能变成重新提交图片或重置次数的通路。该合同尚未实现，本文不授予新权限。
 
 待这次任务获得原生有界GET和确切交付后，再按累计序号4、5完成后两镜、逐笔核费、整组视觉Reviewer／必要局部返工，随后视频与人工终验。完整自主制作与Personal Agent仍未验收，当前不需要用户补Key、扩大预算或重新提供剧本。
+
+后续[D40仅GET续查与交付](./IMAGE-OBSERVATION-CONTINUATION-VALIDATION.md)已完成该原任务查询、下载及原生交付；本D39的POST计时与历史边界保持，普通POST路径仍待单独优化。

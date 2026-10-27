@@ -62,3 +62,5 @@ python -m core.execution.image_operator --control CONTROL --observation ACTIVATI
 `reference_derivation.references_from_proofs`只在一次`validate_state`作用域内保留成功的纯校验。键包含严格完整JSON输入和实际encoder；最多32项／16MiB，返回防御副本，异常不缓存，嵌套作用域恢复，线程隔离，退出显式清空。容量不足时执行原完整校验，不跳过检查。
 
 实际来源解析、逐帧历史、类型、引用身份、费用及候选门禁仍逐次执行。该纯计算优化不授予权限；各次独立控制判断和Key边界仍重新读取真实状态。
+
+实际代码、442项相关复测、原任务仅GET及第二镜交付见[D40独立验收](./IMAGE-OBSERVATION-CONTINUATION-VALIDATION.md)。该GET实测不替代普通付费POST或视觉质量验收。

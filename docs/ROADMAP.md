@@ -136,8 +136,15 @@ D37当轮的后续项是同一intent与已留额度上的新代码／runtime版�
 
 D38当轮只写入精确版本报价与批准，没有新图片请求；真实管理记录、保护文件和检查见[D38独立验收](./IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)。后续真实尝试见D39。
 
-## D39 当前推进点
+## D39 历史推进点
 
 [真实派发与核费](./IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)已取得第二镜新attempt的HTTP200及精确task SUCCESS，平台观察¥0.04已原生认领，重放不重复记账。scope／grant／原unknown、同intent及既留4+1额度不变，原生63帧、POST3／GET2／交付1／费用2，父46条原文不变；风险82.37元／54次是保留包络。
 
 permit签发到collector为106.792秒，但reserve入口到collector121.635秒，入口目标未通过；新增历史后读取增至约6.3秒，GET还复制父POST和引用。因此没有新的GET／下载／交付，也没有第三、第四镜提交。下一项先优化完整历史重建中的重复纯计算或同次权限决定的重复读取，同时实现原accepted POST的显式仅GET观察续接，绑定当前精确代码／lease、原受理身份及累计query，不迁移或重发原POST。随后取回确切图片，按序号4、5继续后两镜及核费，再接视觉Reviewer／必要返工、视频和人工终验。当前无需用户重新登录、补Key或追加预算；完整自主制作与Personal Agent仍未验收。
+
+
+## D40 当前推进点
+
+[仅GET观察续接](./IMAGE-OBSERVATION-CONTINUATION-VALIDATION.md)已在原任务真实取回第二镜。HTTP200／completed、PNG720×1280原字节及交付绑定通过，查询入口65.808秒、permit签发51.633秒；原生63→69，当前2／4首帧交付。query／recover／交付重放不新增HTTP且字节不变，原unknown、scope／grant、父46条和100元授权／保留包络保持，无新付费POST或费用claim。最终365文件442项相关检查通过；2743仅收集，不是新全量通过。
+
+下一D41先测量69帧体量，将同次新鲜snapshot复用接入原v2 POST路径，保留独立Key前／后及collector检查；GET这一次的成功不能替代普通POST验收。之后在同一D37 intent及既留4+1资金上批准当前精确代码／runtime lease，按累计序号4、5逐镜生成、核费并以显式仅GET权限取回，引用第二镜本次确切交付。完整四镜后再接视觉Reviewer／必要返工、视频和人工终验；无需用户重新提供Key、剧本或预算。

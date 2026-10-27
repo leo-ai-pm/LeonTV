@@ -120,7 +120,7 @@ flowchart TD
 | 显式图片操作端 | 已交付1张，首镜任务quota已认领 | 独立范围授权、原任务查询和本地交付；第二镜unknown，后两镜未预留；原策略已到期，默认关闭 |
 | 图片续接预审 | D36真实历史只读核验通过 | 保留原unknown与消耗，派生新窗口／替代版本／增量额度；当轮未激活或生成 |
 | 图片续接授权 | D37授权已落账，原记录保留 | 原journal保存方案／预留意图／激活及唯一父预留；D37的`dispatch_ready=false`保持，历史结果见独立验收 |
-| 图片运行时续接 | D39单次真实POST已受理并核费，派发性能／交付未验收 | 同一intent与已留4+1额度，精确代码／新lease、v2 permit和候选门禁；不重置次数、不重发原unknown |
+| 图片运行时续接 | D40已取回第二镜，当前2／4首帧交付 | 同一intent与既留额度，原任务仅GET续查／交付及重放通过；普通POST性能、后两镜和整组视觉审查待完成 |
 | 内部参考图转换 | 显式选用 | WEBP等原交付转无损PNG；JPEG压缩须报价披露，保留原图和转换证明；技术校验不代表视觉通过 |
 | 素材角色与首帧 | 三镜最终组合通过独立视觉检查 | 全局定型、逐镜引用、局部图片版本及全组合复核；成片与人工终验待进行 |
 | 真实生产质量审查与修复 | 图片受控闭环已执行 | 独立查看者发现问题、指定镜头修订与复核；产品运行时视觉模型集成待完成 |
@@ -133,7 +133,7 @@ flowchart TD
 
 [D28素材交接](./docs/PRODUCT-ASSET-HANDOFF-VALIDATION.md)已用真实四镜接受记录核验；新清单与原三镜媒体分别绑定版本，尚未发起本次四镜图片制作。[D29图片工具组件](./docs/CONTROLLED-IMAGE-TOOLS-VALIDATION.md)进一步接通共享回执采集中的提交／查询、文件技术核验与费用候选，自动调度仍待接入。
 
-[D30媒体账本](./docs/MEDIA-EXECUTION-VALIDATION.md)把图片工具接入同一执行journal的报价、授权、生成意图、费用观察／全局认领与恢复。继承父范围完整冻结预算；未知请求与超额不会通过换grant重试。当前为服务端能力及只读状态接口，尚未启用新的真实四镜制作或视觉Agent。
+[D30媒体账本](./docs/MEDIA-EXECUTION-VALIDATION.md)把图片工具接入同一执行journal的报价、授权、生成意图、费用观察／全局认领与恢复。继承父范围完整冻结预算；未知请求与超额不会通过换grant重试。D30当轮为服务端能力及只读状态接口，当时尚未启用新的真实四镜制作或视觉Agent。
 
 [D31素材执行](./docs/ASSET-DESIGN-VALIDATION.md)与[D32图片操作端](./docs/IMAGE-OPERATOR-VALIDATION.md)将素材文本、图片的独立授权、实际回执、费用与交付接入同一记录。素材清单已真实生成并核费；图片引用转换须预先披露，未知、待核费或超额会停止同账户后续收费请求。D32首镜已交付，当时因缺直接POST请求ID而待核费，其余三镜暂停；后续进展见D34。自动视觉审阅、视频生产和人工终验仍待接入。
 
@@ -147,7 +147,7 @@ flowchart TD
 
 [D38运行时续接合同](./docs/IMAGE-RUNTIME-CONTINUATION-API.md)已把精确代码／新lease批准、v2图片permit和剩余目标接入原执行器。同一intent和已留4+1分配继续使用，新增风险／调用均为0；原scope、grant、unknown与消耗不变。运行时预留、派发／采集、媒体账本和共享预算统一检查精确候选，文字／素材及其他范围不能借用旧unknown例外；引用绑定明确的operation／query／delivery版本。新unknown、待核费或超额阻止新付费POST，明确accepted task的显式有界GET仍按当前版本授权判断，没有自动查询或重试。D38当轮只批准版本，没有新图片请求；[该轮历史验收](./docs/IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)单独记录。
 
-[D39真实派发与核费](./docs/IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)已在同一任务取得第二镜新attempt的HTTP 200，平台任务SUCCESS，¥0.04观察费用已原生认领。permit签发到collector为106.79秒，但reserve入口到collector为121.64秒，未达到入口口径的性能目标；新历史体积也使后续GET接近原120秒期限。因此尚未查询下载或交付新图片。下一步减少重复校验，并实现绑定原受理任务的显式仅GET续查合同，再继续后两镜与视觉／媒体终验；保留原100元预算、风险、消耗及旧unknown。
+[第二镜真实提交与¥0.04核费](./docs/IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)已接上[D40仅GET续查与原图交付](./docs/IMAGE-OBSERVATION-CONTINUATION-VALIDATION.md)：查询入口到collector为65.81秒，原PNG 720×1280已核验入账，当前2／4张首帧交付。新鲜权限检查分别保留在Key前、Key后和collector，沿用原100元预算、既留资金、历史消耗及旧unknown，没有重新提交第二镜。普通付费POST链路仍须单独优化和验收，之后完成后两镜、整组视觉审阅及媒体终验；本轮不声明完整自主制作通过。
 
 [素材角色](./docs/ASSET-HANDOFF-VALIDATION.md)已生成真实首帧；[D20 视觉审阅与局部返工](./docs/ASSET-VISUAL-REVIEW-VALIDATION.md)进一步修复道具、机位和特写，最终三镜组合通过独立检查。三次修订平台费用共 ¥0.12，1174 项全量测试及 5 个子测试通过。视觉查看由独立 Codex Agent 完成，尚未集成为产品运行时 VLM。
 

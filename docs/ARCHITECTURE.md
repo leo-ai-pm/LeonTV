@@ -22,6 +22,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 图片续接授权层 | D37原journal的quote／持久预留意图／activation，服务器固定实际父账本并核验唯一增量；意图起计入共享风险 | activation即派发许可、释放旧unknown、修改旧policy或重置消耗；本阶段固定`dispatch_ready=false`、`runtime_contract_pending=true` |
 | 图片运行时续接 | D38同intent及既留4+1分配，原任务精确版本批准已落账，v2 permit、精确引用及统一候选门禁 | 通过实际120秒派发、已交付新媒体或已解除全局unknown；管理元数据与真实执行分别验收 |
 | 真实续接派发 | D39原执行器单次HTTP200、精确task SUCCESS及¥0.04原生核费；同intent／预算不变 | reserve入口121.64秒未达目标，尚无新GET或图片交付；本地重复校验待优化，跨版本仅GET续查合同待实现 |
+| 已受理任务观察续接 | D40独立仅GET批准，原collector取回第二镜，65.81秒入口链路，技术交付／重放通过 | 新生成POST权限、全部生成性能已验收、视觉质量或完整自主制作通过 |
 | 内部参考图转换 | 独立报价绑定转换profile／encoder，原图与衍生证明并存；JPEG需显式允许 | 技术转换即视觉通过、自动裁剪或任意压缩 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
@@ -38,6 +39,8 @@ D38的 `image_runtime_continuation`、`image_continuation_funding`、`image_cont
 该候选门禁阻止新unknown、待核费或超额后的新付费POST；已明确accepted task的显式有界GET仍须满足当前revision／lease／grant／code／funding及父POST绑定，不自动查询或重试。跨revision不移植旧POST来续GET，只读恢复及费用／交付导入继续处理原事实。D38当轮的精确版本批准已独立验收，当时没有新请求；后续真实执行见D39。[D38接口](./IMAGE-RUNTIME-CONTINUATION-API.md) · [D38实际验收](./IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)。
 
 D39在原任务追加同intent的lease批准后，用原会话派发一次第二镜attempt2，HTTP200受理；精确task的SUCCESS与¥0.04quota已原生认领。签发到collector106.792秒，入口到collector121.635秒，入口性能目标未通过。原62帧读取约6.3秒，后续GET复制完整父POST和引用，当前16次完整历史重建路径缺乏时限余量，故未新查询或交付。下一实现须同时处理同次校验复用与显式仅GET观察续接；新代码／lease不能借新批准直接迁移旧POST。预算、旧unknown、次数和原回执保持。[D39实测、费用及未完成项](./IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)。
+
+D40的 `image_observation_continuation/policy/control/runtime/operator` 在原media命名空间批准仅GET观察；compact descriptor保留原POST一次，原collector核对完整受理回执。每个Key边界和最终采集分别获取新鲜snapshot，同一次判断内做纯候选检查；普通v2路径保持。引用证明仅在单次历史校验内作有界纯复用。实际第二镜原PNG720×1280已交付，原生69帧／POST3／GET3／交付2／费用2，父46条与预算保持；观察GET入口65.808秒、签发51.633秒，均在120秒内。普通POST仍须优化后再生成后两镜，质量及人工验收待完成。[D40合同](./IMAGE-OBSERVATION-CONTINUATION-API.md) · [实测与边界](./IMAGE-OBSERVATION-CONTINUATION-VALIDATION.md)。
 
 ## 现役创作链路
 
