@@ -125,3 +125,5 @@ python -m core.execution.image_operator --control CONTROL --runtime-continuation
 先完成代码与合成同journal闭环、错误输入和重放检查，再在原任务中单独核验管理元数据及既有预算不变。管理记录落盘不证明实际派发成功；需要在真实历史体量和有效窗口中测量reserve→collector.prepare是否满足原单次120秒限制，且保留Key前后独立检查。
 
 只有实际HTTP回执、精确费用证明、交付技术核验、整组视觉Reviewer／必要返工以及人工接受分别成立，才能推进对应生产阶段。本合同不宣称完整自主制作、最终成片质量或Personal Agent已完成。
+
+后续[D39真实派发与费用验收](./IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)记录单次真实受理、入口与签发两种时间口径及尚未查询交付的边界；本D38合同和历史测试结果不被改写为完整生产验收。

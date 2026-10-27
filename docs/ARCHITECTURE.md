@@ -21,6 +21,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 原生素材与图片操作端 | D31单次素材文本、核费证明清单，D32独立图片control／CLI；复用原journal，原生素材已真实核费 | 操作员写UI、自动审图、完整自主制作或最终人工接受 |
 | 图片续接授权层 | D37原journal的quote／持久预留意图／activation，服务器固定实际父账本并核验唯一增量；意图起计入共享风险 | activation即派发许可、释放旧unknown、修改旧policy或重置消耗；本阶段固定`dispatch_ready=false`、`runtime_contract_pending=true` |
 | 图片运行时续接 | D38同intent及既留4+1分配，原任务精确版本批准已落账，v2 permit、精确引用及统一候选门禁 | 通过实际120秒派发、已交付新媒体或已解除全局unknown；管理元数据与真实执行分别验收 |
+| 真实续接派发 | D39原执行器单次HTTP200、精确task SUCCESS及¥0.04原生核费；同intent／预算不变 | reserve入口121.64秒未达目标，尚无新GET或图片交付；本地重复校验待优化，跨版本仅GET续查合同待实现 |
 | 内部参考图转换 | 独立报价绑定转换profile／encoder，原图与衍生证明并存；JPEG需显式允许 | 技术转换即视觉通过、自动裁剪或任意压缩 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
@@ -34,7 +35,9 @@ D37的 `image_validity_continuation`、`image_continuation_parent_io` 和 `image
 
 D38的 `image_runtime_continuation`、`image_continuation_funding`、`image_continuation_policy` 和显式运行时控制在同一个intent及已留4+1分配上建立新版本合同，新增风险／调用为0。D37原方案按真实quote出生前缀核验；新批准绑定精确代码和新lease，v2 permit以新operation／nonce及累计序号3、4、5区分第二镜替代attempt和后两镜，引用绑定明确的operation／query／delivery。两笔真实allocation及begin分别保留，原anchor不伪装为分配集合hash。原scope、grant、unknown及旧记录不变。运行时预留、派发／采集、媒体账本和共享预算共用精确候选门禁，文字／素材和其他scope不能借用例外。
 
-该候选门禁阻止新unknown、待核费或超额后的新付费POST；已明确accepted task的显式有界GET仍须满足当前revision／lease／grant／code／funding及父POST绑定，不自动查询或重试。跨revision不移植旧POST来续GET，只读恢复及费用／交付导入继续处理原事实。原任务的精确版本批准已独立验收；实际120秒reserve→collector.prepare、媒体生成与质量仍待验收，不能由授权落账推定完成。[D38接口](./IMAGE-RUNTIME-CONTINUATION-API.md) · [D38实际验收](./IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)。
+该候选门禁阻止新unknown、待核费或超额后的新付费POST；已明确accepted task的显式有界GET仍须满足当前revision／lease／grant／code／funding及父POST绑定，不自动查询或重试。跨revision不移植旧POST来续GET，只读恢复及费用／交付导入继续处理原事实。D38当轮的精确版本批准已独立验收，当时没有新请求；后续真实执行见D39。[D38接口](./IMAGE-RUNTIME-CONTINUATION-API.md) · [D38实际验收](./IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)。
+
+D39在原任务追加同intent的lease批准后，用原会话派发一次第二镜attempt2，HTTP200受理；精确task的SUCCESS与¥0.04quota已原生认领。签发到collector106.792秒，入口到collector121.635秒，入口性能目标未通过。原62帧读取约6.3秒，后续GET复制完整父POST和引用，当前16次完整历史重建路径缺乏时限余量，故未新查询或交付。下一实现须同时处理同次校验复用与显式仅GET观察续接；新代码／lease不能借新批准直接迁移旧POST。预算、旧unknown、次数和原回执保持。[D39实测、费用及未完成项](./IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)。
 
 ## 现役创作链路
 

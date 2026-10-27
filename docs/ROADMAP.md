@@ -128,10 +128,16 @@ D36当轮的后续项是原journal内的正式续接授权及新替代任务。�
 
 D37当轮的后续项是同一intent与已留额度上的新代码／runtime版本合同；实现见D38。该历史阶段没有恢复生成，其原记录和验收结论保持。
 
-## D38 当前推进点
+## D38 历史推进点
 
 [运行时续接合同](./IMAGE-RUNTIME-CONTINUATION-API.md)已接入原journal和图片执行器：新报价／批准绑定精确代码与新lease，沿用**同一intent、同一已留4+1分配**，新增风险／调用为0，不再分配1元、不重建scope／grant或重置消耗。D37原方案按真实出生前缀重建；v2 descriptor／permit绑定独立operation／nonce、第二镜替代attempt与第三／第四镜的累计序号3、4、5，引用选择确切交付版本。原unknown和全局事实函数保留。运行时预留、派发／采集、媒体账本及共享预算统一核验精确候选；文字／素材、其他scope和相同ID的其他类型记录不能借用例外。
 
 新unknown、待核费或超额停止新付费POST；明确accepted task的显式有界GET另受当前revision／lease／grant／code／funding及父POST绑定约束，没有自动query或retry。跨revision的旧POST不能直接借新批准续GET。只读恢复、核费和交付导入继续沿用原事实通道。
 
-原任务已写入精确新版本报价与批准，父预算及旧历史不变，尚未创建新图片请求；真实管理记录、保护文件和执行检查见[D38独立验收](./IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)。下一步在真实历史体量、有效窗口与原120秒期限内验收reserve→collector.prepare；仅在该边界通过后继续三镜、整组视觉Reviewer／必要局部返工、视频及人工终验。完整自主协作与Personal Agent仍为后续目标，当前无需用户补Key或重新登录。
+D38当轮只写入精确版本报价与批准，没有新图片请求；真实管理记录、保护文件和检查见[D38独立验收](./IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)。后续真实尝试见D39。
+
+## D39 当前推进点
+
+[真实派发与核费](./IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)已取得第二镜新attempt的HTTP200及精确task SUCCESS，平台观察¥0.04已原生认领，重放不重复记账。scope／grant／原unknown、同intent及既留4+1额度不变，原生63帧、POST3／GET2／交付1／费用2，父46条原文不变；风险82.37元／54次是保留包络。
+
+permit签发到collector为106.792秒，但reserve入口到collector121.635秒，入口目标未通过；新增历史后读取增至约6.3秒，GET还复制父POST和引用。因此没有新的GET／下载／交付，也没有第三、第四镜提交。下一项先优化完整历史重建中的重复纯计算或同次权限决定的重复读取，同时实现原accepted POST的显式仅GET观察续接，绑定当前精确代码／lease、原受理身份及累计query，不迁移或重发原POST。随后取回确切图片，按序号4、5继续后两镜及核费，再接视觉Reviewer／必要返工、视频和人工终验。当前无需用户重新登录、补Key或追加预算；完整自主制作与Personal Agent仍未验收。

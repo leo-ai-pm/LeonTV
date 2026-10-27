@@ -120,7 +120,7 @@ flowchart TD
 | 显式图片操作端 | 已交付1张，首镜任务quota已认领 | 独立范围授权、原任务查询和本地交付；第二镜unknown，后两镜未预留；原策略已到期，默认关闭 |
 | 图片续接预审 | D36真实历史只读核验通过 | 保留原unknown与消耗，派生新窗口／替代版本／增量额度；当轮未激活或生成 |
 | 图片续接授权 | D37授权已落账，原记录保留 | 原journal保存方案／预留意图／激活及唯一父预留；D37的`dispatch_ready=false`保持，历史结果见独立验收 |
-| 图片运行时续接 | D38版本合同已接入，实际派发待验收 | 同一intent与已留4+1额度，精确代码／新lease、v2 permit和候选门禁；不重置次数、不重发原unknown |
+| 图片运行时续接 | D39单次真实POST已受理并核费，派发性能／交付未验收 | 同一intent与已留4+1额度，精确代码／新lease、v2 permit和候选门禁；不重置次数、不重发原unknown |
 | 内部参考图转换 | 显式选用 | WEBP等原交付转无损PNG；JPEG压缩须报价披露，保留原图和转换证明；技术校验不代表视觉通过 |
 | 素材角色与首帧 | 三镜最终组合通过独立视觉检查 | 全局定型、逐镜引用、局部图片版本及全组合复核；成片与人工终验待进行 |
 | 真实生产质量审查与修复 | 图片受控闭环已执行 | 独立查看者发现问题、指定镜头修订与复核；产品运行时视觉模型集成待完成 |
@@ -145,7 +145,9 @@ flowchart TD
 
 [D37图片续接授权](./docs/IMAGE-VALIDITY-CONTINUATION-API.md)将方案、持久预留意图和激活记录接入原journal：意图成立即保留新增1元／1次，父写入只接受原45条加同一方案的唯一分配，中断恢复与重放不重复占额。合同中的账户包络从81.37元／53次增至82.37元／54次，属于本地保守风险预留，不是消费或平台资金冻结。激活固定为`dispatch_ready=false`、`runtime_contract_pending=true`，旧unknown、范围、grant和policy均保留。[实际写入与检查结果](./docs/IMAGE-VALIDITY-CONTINUATION-VALIDATION.md)单独记录。D37当轮未接通生成执行；后续版本合同见D38，原记录及其检查结论保持为历史。
 
-[D38运行时续接合同](./docs/IMAGE-RUNTIME-CONTINUATION-API.md)已把精确代码／新lease批准、v2图片permit和剩余目标接入原执行器。同一intent和已留4+1分配继续使用，新增风险／调用均为0；原scope、grant、unknown与消耗不变。运行时预留、派发／采集、媒体账本和共享预算统一检查精确候选，文字／素材及其他范围不能借用旧unknown例外；引用绑定明确的operation／query／delivery版本。新unknown、待核费或超额阻止新付费POST，明确accepted task的显式有界GET仍按当前版本授权判断，没有自动查询或重试。原任务的精确新版本批准已独立落账，父预算不变，尚未创建新图片请求；[本轮实际验收](./docs/IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)单独记录。下一步先在真实历史及有效窗口核验reserve→collector.prepare满足原120秒期限，再继续第二镜替代attempt、第三／第四镜、视觉审阅及媒体终验。
+[D38运行时续接合同](./docs/IMAGE-RUNTIME-CONTINUATION-API.md)已把精确代码／新lease批准、v2图片permit和剩余目标接入原执行器。同一intent和已留4+1分配继续使用，新增风险／调用均为0；原scope、grant、unknown与消耗不变。运行时预留、派发／采集、媒体账本和共享预算统一检查精确候选，文字／素材及其他范围不能借用旧unknown例外；引用绑定明确的operation／query／delivery版本。新unknown、待核费或超额阻止新付费POST，明确accepted task的显式有界GET仍按当前版本授权判断，没有自动查询或重试。D38当轮只批准版本，没有新图片请求；[该轮历史验收](./docs/IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)单独记录。
+
+[D39真实派发与核费](./docs/IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)已在同一任务取得第二镜新attempt的HTTP 200，平台任务SUCCESS，¥0.04观察费用已原生认领。permit签发到collector为106.79秒，但reserve入口到collector为121.64秒，未达到入口口径的性能目标；新历史体积也使后续GET接近原120秒期限。因此尚未查询下载或交付新图片。下一步减少重复校验，并实现绑定原受理任务的显式仅GET续查合同，再继续后两镜与视觉／媒体终验；保留原100元预算、风险、消耗及旧unknown。
 
 [素材角色](./docs/ASSET-HANDOFF-VALIDATION.md)已生成真实首帧；[D20 视觉审阅与局部返工](./docs/ASSET-VISUAL-REVIEW-VALIDATION.md)进一步修复道具、机位和特写，最终三镜组合通过独立检查。三次修订平台费用共 ¥0.12，1174 项全量测试及 5 个子测试通过。视觉查看由独立 Codex Agent 完成，尚未集成为产品运行时 VLM。
 
