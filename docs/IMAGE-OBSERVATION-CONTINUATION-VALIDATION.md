@@ -73,3 +73,5 @@
 将同次权限决定的snapshot复用接入原v2 POST路径，保留各次独立Key前后和collector检查；先测量真实69帧体量，确认性能余量，再在同一D37 intent／既留4+1资金上批准精确当前代码与新runtime lease。累计POST序号只剩4、5，原unknown继续占用，不能重新分配、重发第二镜或重置次数。
 
 随后完成第三、第四镜，精确引用第二镜本次operation／query／delivery及原始字节，逐笔核费，并用显式仅GET权限取回对应图片。完整四镜交付后才进行整组视觉审阅、必要返工、视频和人工终验。Agent Harness自主制作及Personal Agent仍未整体验收，当前无需用户补素材、登录或追加预算。
+
+后续[D41普通POST优化与故障边界](./IMAGE-SUBMIT-SNAPSHOT-VALIDATION.md)已完成同次新鲜snapshot接入和一次第三镜真实提交；入口耗时达标，但原响应超时，当前仍2／4交付。此后续结果不改变本D40第二镜交付与历史验收。

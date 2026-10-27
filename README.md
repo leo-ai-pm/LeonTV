@@ -120,7 +120,7 @@ flowchart TD
 | 显式图片操作端 | 已交付1张，首镜任务quota已认领 | 独立范围授权、原任务查询和本地交付；第二镜unknown，后两镜未预留；原策略已到期，默认关闭 |
 | 图片续接预审 | D36真实历史只读核验通过 | 保留原unknown与消耗，派生新窗口／替代版本／增量额度；当轮未激活或生成 |
 | 图片续接授权 | D37授权已落账，原记录保留 | 原journal保存方案／预留意图／激活及唯一父预留；D37的`dispatch_ready=false`保持，历史结果见独立验收 |
-| 图片运行时续接 | D40已取回第二镜，当前2／4首帧交付 | 同一intent与既留额度，原任务仅GET续查／交付及重放通过；普通POST性能、后两镜和整组视觉审查待完成 |
+| 图片运行时续接 | 当前2／4首帧交付，D41提交路径已优化 | 第三镜提交入口83.78秒达标，但等待原响应超时；第四镜按unknown门禁暂停，精确对账和完整图集待完成 |
 | 内部参考图转换 | 显式选用 | WEBP等原交付转无损PNG；JPEG压缩须报价披露，保留原图和转换证明；技术校验不代表视觉通过 |
 | 素材角色与首帧 | 三镜最终组合通过独立视觉检查 | 全局定型、逐镜引用、局部图片版本及全组合复核；成片与人工终验待进行 |
 | 真实生产质量审查与修复 | 图片受控闭环已执行 | 独立查看者发现问题、指定镜头修订与复核；产品运行时视觉模型集成待完成 |
@@ -147,7 +147,7 @@ flowchart TD
 
 [D38运行时续接合同](./docs/IMAGE-RUNTIME-CONTINUATION-API.md)已把精确代码／新lease批准、v2图片permit和剩余目标接入原执行器。同一intent和已留4+1分配继续使用，新增风险／调用均为0；原scope、grant、unknown与消耗不变。运行时预留、派发／采集、媒体账本和共享预算统一检查精确候选，文字／素材及其他范围不能借用旧unknown例外；引用绑定明确的operation／query／delivery版本。新unknown、待核费或超额阻止新付费POST，明确accepted task的显式有界GET仍按当前版本授权判断，没有自动查询或重试。D38当轮只批准版本，没有新图片请求；[该轮历史验收](./docs/IMAGE-RUNTIME-CONTINUATION-VALIDATION.md)单独记录。
 
-[第二镜真实提交与¥0.04核费](./docs/IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)已接上[D40仅GET续查与原图交付](./docs/IMAGE-OBSERVATION-CONTINUATION-VALIDATION.md)：查询入口到collector为65.81秒，原PNG 720×1280已核验入账，当前2／4张首帧交付。新鲜权限检查分别保留在Key前、Key后和collector，沿用原100元预算、既留资金、历史消耗及旧unknown，没有重新提交第二镜。普通付费POST链路仍须单独优化和验收，之后完成后两镜、整组视觉审阅及媒体终验；本轮不声明完整自主制作通过。
+[第二镜真实提交与¥0.04核费](./docs/IMAGE-DISPATCH-ACCEPTANCE-VALIDATION.md)已接上[D40仅GET续查与原图交付](./docs/IMAGE-OBSERVATION-CONTINUATION-VALIDATION.md)：查询入口到collector为65.81秒，原PNG 720×1280已核验入账，当前2／4张首帧交付。新鲜权限检查分别保留在Key前、Key后和collector，沿用原100元预算、既留资金、历史消耗及旧unknown，没有重新提交第二镜。后续[D41提交路径优化与实测](./docs/IMAGE-SUBMIT-SNAPSHOT-VALIDATION.md)将完整历史读取从19次降至7次，第三镜入口83.78秒达标；等待原响应仍超时，没有新增可核验交付。平台成功候选尚不能精确关联，第四镜按新unknown门禁暂停。下一步处理响应等待与对账，再完成图集和视觉审阅；完整自主制作仍待验收。
 
 [素材角色](./docs/ASSET-HANDOFF-VALIDATION.md)已生成真实首帧；[D20 视觉审阅与局部返工](./docs/ASSET-VISUAL-REVIEW-VALIDATION.md)进一步修复道具、机位和特写，最终三镜组合通过独立检查。三次修订平台费用共 ¥0.12，1174 项全量测试及 5 个子测试通过。视觉查看由独立 Codex Agent 完成，尚未集成为产品运行时 VLM。
 
