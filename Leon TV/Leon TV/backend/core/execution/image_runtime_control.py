@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from core.creator.store import digest
 from core.execution.image_control import LoadedImageControl, require
 from core.execution.image_runtime_continuation import authority_for, verify_current
+from core.execution.media_failure_phase import capture_stage
 from core.execution.store import ExecutionStore
 
 
@@ -18,23 +19,37 @@ class RuntimeContinuedImageControl:
     def __getattr__(self, name):
         return getattr(self.base, name)
 
+    def verified_current(self):
+        from core.execution.image_runtime_continuation import verified_current
+
+        # Nothing is retained on this control or carried across Key boundaries.
+        return verified_current(self.base, self.runtime_activation_id)
+
     def verify_authority(self, backend_root=None, *, for_dispatch=False):
         if backend_root is not None:
             require(backend_root == self.base.backend_root)
         require(type(for_dispatch) is bool)
         if for_dispatch:
-            payload = ExecutionStore(self.roots["execution"]).read_only()
-            verify_current(self.base, payload, self.runtime_activation_id)
+            self.verified_current()
         else:
             self.base.verify_authority(for_dispatch=False)
         return True
 
     def guard_runtime(self, scope, authority):
-        payload = ExecutionStore(self.roots["execution"]).read_only()
-        verify_current(self.base, payload, self.runtime_activation_id)
-        expected = authority_for(payload, self.runtime_activation_id)
+        _, expected = self.verified_current()
         require(digest(authority) == digest(expected) and digest(scope) == expected["scope_hash"])
         return True
+
+    def guard_capture(self, media, frozen, *, native_stage=None):
+        from core.execution.media_runtime import MediaExecution
+
+        require(type(media) is MediaExecution and media.continuation_control is self
+            and media.continuation_activation_id == self.runtime_activation_id
+            and media.store.root == self.roots["execution"])
+        payload, authority = self.verified_current()
+        if native_stage is not None:
+            capture_stage(native_stage)
+        return media._capture_guard_verified(payload, authority, frozen)
 
 
 def runtime_status(control, operation_id=None):

@@ -294,12 +294,10 @@ def validate_history(state, payload):
         raise unavailable() from None
 
 
-def _current(control, payload, validity_activation_id):
+def _current_from_verified(control, actual, ready, validity_activation_id):
+    """Collect facts from this decision's already verified original snapshot."""
     from core.execution import image_validity_continuation as validity
 
-    require(type(control) is LoadedImageControl and control.document.mode == "enabled")
-    _, _, ready, actual = control._verified(for_dispatch=False)
-    require(_same(actual, payload))
     candidates = control._matching(actual, ready)
     require(len(candidates) == 1)
     scope = candidates[0]
@@ -313,16 +311,35 @@ def _current(control, payload, validity_activation_id):
     return scope, grant, q, a, funding
 
 
-def verify_current(control, payload, activation_id):
-    """Fresh latest-revision/code/lease/source/grant/collector/funding checks."""
+def _current(control, payload, validity_activation_id):
+    require(type(control) is LoadedImageControl and control.document.mode == "enabled")
+    _, _, ready, actual = control._verified(for_dispatch=False)
+    require(_same(actual, payload))
+    return _current_from_verified(control, actual, ready, validity_activation_id)
+
+
+def verified_current(control, activation_id):
+    """Return a new actual snapshot and its current authority for one decision."""
     try:
+        require(type(control) is LoadedImageControl and control.document.mode == "enabled")
+        _, _, ready, payload = control._verified(for_dispatch=False)
         authority = authority_for(payload, activation_id)
         require(latest_activation_id(payload, authority["scope_id"]) == activation_id)
-        _, _, _, _, funding = _current(control, payload, authority["validity_activation_id"])
+        _, _, _, _, funding = _current_from_verified(control, payload, ready, authority["validity_activation_id"])
         q = payload["media"][QUOTE + ":" + authority["quote_id"]]
         require(_same(funding, q["disclosure"]["funding"]))
         require(_same(_collect_code_manifest(control), q["disclosure"]["new_code_manifest"]))
         require(now() < timestamp(authority["effective_policy"]["valid_until"]))
+        return payload, authority
+    except Exception:
+        raise unavailable() from None
+
+
+def verify_current(control, payload, activation_id):
+    """Fresh checks; a caller's snapshot never stands in for the actual store."""
+    try:
+        actual, _ = verified_current(control, activation_id)
+        require(_same(actual, payload))
         return True
     except Exception:
         raise unavailable() from None

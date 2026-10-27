@@ -40,6 +40,7 @@
 | `latest_activation_id(payload, scope_id)` | 纯读取该scope最新批准版本；没有时返回`None` |
 | `authority_for(payload, activation_id)` | 从已核验journal重建指定历史版本的完整authority，不声明当前仍有效 |
 | `validate_authority(value)` | 纯核验authority的严格字段、封印、有效策略、两笔真实分配及目标算术；自封JSON不能单独授予权限 |
+| `verified_current(control, activation_id)`（D41） | 独立重新核验实际原控制与journal，再核验最新版本、来源／grant、原unknown collector、既留资金、当前代码和lease；返回本次决定的`(payload, authority)`，不缓存 |
 | `verify_current(control, payload, activation_id)` | 独立新鲜核验实际head、最新版本、当前代码、来源／grant、原unknown collector、既有父证明及新lease；成功返回严格`True` |
 | `validate_record`／`validate_transition`／`validate_history` | 原journal的字段、出生前缀、相邻提交、版本链和checkpoint完整性检查 |
 
@@ -92,6 +93,18 @@ query必须完整继承其父POST的authority。切换到新runtime revision后�
 引用选择绑定确切已交付操作、查询和文件，不再按镜头名选第一个历史操作。第二镜新attempt交付后，第三镜需要引用该确定版本；原unknown即使镜头名相同，也不能充当参考图。转换后的PNG／JPEG仍沿用原转换披露和证明，原始交付字节保留。
 
 原`MediaExecution`增加显式`continuation_activation_id`与`continuation_guard`。未提供时仍走旧合同；提供后，reserve／start／query使用匹配的v2 authority和候选门禁，原scope、grant与幂等键体系继续复用。Key前后仍独立核验实际授权和原生请求绑定，POST另核验具体候选门禁；采集器还执行自己的最终检查。加载凭证不是权限。
+
+## D41：同一次权限决定共用新鲜snapshot
+
+`RuntimeContinuedImageControl.verified_current()`调用上述新接口，每次重新读取原控制、实际状态和外部资金／代码证明。`verify_current(control, payload, activation_id)`仍会独立获取实际snapshot，并要求调用者给出的payload与之完全匹配；调用者传入的旧snapshot或修改后的dict不能代替当前权限。
+
+原`build_image_session`为v2执行器显式传入`continuation_control`。`MediaExecution`严格核验其类型为`RuntimeContinuedImageControl`，原执行目录与激活ID匹配，且`continuation_guard`是该同一control的原`guard_runtime`绑定方法；不能同时提供一个不同或更严格的guard后被静默忽略。构造、权限决定和collector最终回调均重新检查绑定，后续替换control／guard也不能借用已有权限。
+
+reserve和start分别取得新的实际snapshot，要求其与当前transaction的payload相同。Key前、Key后和collector最终检查又分别取得独立的新snapshot；同一次决定中的配置、原生记录、descriptor、grant和POST候选门禁使用该次刚核验的状态。原policy／anchor／manifest／费用来源／参考转换profile／素材来源绑定继续核验，跨类型unknown、待核费、超额、累计次数、nonce和精确交付引用规则不变。
+
+snapshot不保存在control或runtime中，不跨越Key边界或请求复用。返回的dict只是该次核验结果，修改它不能改变原状态或下一次的权限判断。旧v1及只提供原callback的路径保留，D40仅GET观察合同也不变。
+
+这项改动减少同一次决定中的重复历史重建，不改变120秒permit期限、不刷新旧permit、不追加父预算，也不自动派发。代码／lease变化仍需同一D37 intent及既有4+1分配上的精确新批准。代码与合成检查、真实体量测量及后续派发分别见[D41提交校验验收](./IMAGE-SUBMIT-SNAPSHOT-VALIDATION.md)；本接口说明不单独证明真实付费POST已通过。
 
 ## 管理CLI与实际操作CLI
 

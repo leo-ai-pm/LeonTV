@@ -48,8 +48,9 @@ class _BoundImageCapture:
 
     def capture(self, request, _runtime_key):
         capture_stage("control_before_key")
-        observation = getattr(self.control, "observation_activation_id", None) is not None
-        if observation:
+        combined = (getattr(self.control, "observation_activation_id", None) is not None
+            or getattr(self.control, "runtime_activation_id", None) is not None)
+        if combined:
             require(self.control.guard_capture(self.media, request.frozen(), native_stage="native_before_key") is True)
         else:
             self.control.verify_authority(for_dispatch=True)
@@ -71,7 +72,7 @@ class _BoundImageCapture:
         # Loading a credential is not authority. Recheck the actual persisted
         # reservation and current control after it, before the original capture.
         capture_stage("control_after_key")
-        if observation:
+        if combined:
             require(self.control.guard_capture(self.media, request.frozen(), native_stage="native_after_key") is True)
         else:
             self.control.verify_authority(for_dispatch=True)
@@ -112,7 +113,7 @@ def build_image_session(control, *, receipt_capture=None, credential_loader=None
         continuation = {}
         if getattr(control, "runtime_activation_id", None) is not None:
             continuation = {"continuation_activation_id": control.runtime_activation_id,
-                "continuation_guard": control.guard_runtime}
+                "continuation_guard": control.guard_runtime, "continuation_control": control}
         factory = media_from_asset_design
         if getattr(control, "observation_activation_id", None) is not None:
             from core.execution.image_observation_runtime import observation_from_asset_design

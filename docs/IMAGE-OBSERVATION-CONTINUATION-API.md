@@ -32,7 +32,7 @@
 
 `ImageObservationExecution`继承原媒体执行器，使用原锁、transaction、`_run`、`ControlledImageCapture`、detached worker和ReceiptStore。quote／grant／reserve_submit／submit／revoke入口明确拒绝；只读恢复及交付导入限制为所选原POST和对应观察查询。
 
-Key前、Key后、collector最终检查分别取得新的实际snapshot；每一次同时核验控制和该snapshot中的完整原生候选。原120秒期限不变，没有跨请求许可缓存。普通v1／v2执行路径继续使用原合同。
+Key前、Key后、collector最终检查分别取得新的实际snapshot；每一次同时核验控制和该snapshot中的完整原生候选。原120秒期限不变，没有跨请求许可缓存。普通v1执行路径继续使用原合同；后续D41把同次决定的snapshot复用接入普通v2提交，保留各独立边界的新鲜核验，见[D41提交校验验收](./IMAGE-SUBMIT-SNAPSHOT-VALIDATION.md)。D40的GET成功不能替代普通付费POST验收。
 
 ## 查询次数和全局门禁
 

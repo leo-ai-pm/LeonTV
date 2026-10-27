@@ -46,7 +46,7 @@ from core.planner.review import json_copy
 
 
 class MediaExecution:
-    def __init__(self, runtime, *, policy=None, budget_anchor=None, manifest=None, authority_guard=None, fee_source=None, receipt_capture=None, reference_profile=None, manifest_origin=None, continuation_activation_id=None, continuation_guard=None):
+    def __init__(self, runtime, *, policy=None, budget_anchor=None, manifest=None, authority_guard=None, fee_source=None, receipt_capture=None, reference_profile=None, manifest_origin=None, continuation_activation_id=None, continuation_guard=None, continuation_control=None):
         self.runtime, self.store = runtime, runtime.store
         self.policy = policy.frozen() if isinstance(policy, ImageToolPolicy) else copy.deepcopy(policy)
         self.anchor = budget_anchor.frozen() if isinstance(budget_anchor, MediaBudgetAnchor) else copy.deepcopy(budget_anchor)
@@ -56,6 +56,9 @@ class MediaExecution:
         self.authority_guard = authority_guard
         self.continuation_activation_id = continuation_activation_id
         self.continuation_guard = continuation_guard
+        self.continuation_control = continuation_control
+        if continuation_control is not None:
+            self._bound_continuation_control()
         self.fee_source = FrozenFeeSource.model_validate(fee_source).model_dump() if fee_source is not None else None
         self.capture = ControlledImageCapture(self.store.root / "media-receipts", authority_verifier=self._capture_guard,
             settings=receipt_capture or ReceiptCaptureSettings())
@@ -88,12 +91,45 @@ class MediaExecution:
         payload["media"][key] = record
         return record
 
-    def _authority(self, scope, *, payload=None):
+    def _bound_continuation_control(self):
+        from types import MethodType
+
+        from core.execution.image_runtime_control import RuntimeContinuedImageControl
+
+        control, guard = self.continuation_control, self.continuation_guard
+        require(type(control) is RuntimeContinuedImageControl
+            and control.runtime_activation_id == self.continuation_activation_id
+            and control.roots["execution"] == self.store.root
+            and type(guard) is MethodType and guard.__self__ is control
+            and guard.__func__ is RuntimeContinuedImageControl.guard_runtime, "MEDIA_AUTHORITY_REJECTED")
+        return control
+
+    def _configured_authority(self, scope):
         require(self.policy is not None and self.anchor is not None and self.manifest is not None and self.fee_source is not None, "MEDIA_DISABLED")
         require(digest(scope["policy"]) == digest(self.policy) and digest(scope["anchor"]) == digest(self.anchor)
                 and digest(scope["manifest"]) == digest(self.manifest) and digest(scope["fee_source"]) == digest(self.fee_source), "MEDIA_POLICY_STALE")
         require(digest(scope.get("reference_profile")) == digest(self.reference_profile), "MEDIA_POLICY_STALE")
         require(digest(scope.get("manifest_origin")) == digest(self.manifest_origin), "MEDIA_POLICY_STALE")
+
+    def _continuation_authority_verified(self, scope, payload, authority):
+        """Pure checks on the fresh snapshot supplied by the bound control."""
+        from core.execution.image_runtime_continuation import authority_for, latest_activation_id
+
+        self._configured_authority(scope)
+        self._bound_continuation_control()
+        require(digest(scope) == digest(payload["media"]["scope:" + scope["id"]]), "MEDIA_POLICY_STALE")
+        require(digest(authority) == digest(authority_for(payload, self.continuation_activation_id)), "MEDIA_POLICY_STALE")
+        require(authority["scope_id"] == scope["id"] and authority["scope_hash"] == digest(scope), "MEDIA_POLICY_STALE")
+        require(latest_activation_id(payload, scope["id"]) == authority["activation_id"], "MEDIA_POLICY_STALE")
+        require(now() < timestamp(authority["effective_policy"]["valid_until"]), "MEDIA_POLICY_EXPIRED")
+        return authority
+
+    def _authority(self, scope, *, payload=None):
+        self._configured_authority(scope)
+        if self.continuation_control is not None:
+            current, authority = self._bound_continuation_control().verified_current()
+            require(payload is None or digest(payload) == digest(current), "MEDIA_AUTHORITY_REJECTED")
+            return self._continuation_authority_verified(scope, current, authority)
         if getattr(self, "continuation_activation_id", None) is not None:
             from core.execution.image_runtime_continuation import (
                 authority_for,
@@ -326,6 +362,8 @@ class MediaExecution:
 
     def _capture_guard(self, frozen):
         try:
+            if self.continuation_control is not None:
+                return self._bound_continuation_control().guard_capture(self, frozen) is True
             payload = self.store.read_only()
             permit = frozen["permit"]
             kind = "operation" if frozen["method"] == "POST" else "query"
@@ -333,6 +371,28 @@ class MediaExecution:
             require(record["status"] == "submitting" and digest(record["descriptor"]) == digest(frozen))
             scope = payload["media"]["scope:" + record["scope_id"]]
             self._record_authority(payload, scope, record)
+            grant = payload["media"]["grant:" + permit["grant_id"]]
+            require(grant["revoked_at"] is None)
+            if kind == "operation":
+                self._dispatch_checks(payload, scope, record)
+                require(not unresolved_text_claims(payload))
+            return True
+        except Exception:
+            return False
+
+    def _capture_guard_verified(self, payload, authority, frozen):
+        """Native candidate checks within one fresh v2 capture decision."""
+        from core.execution.media_continuation_gate import is_continuation
+
+        try:
+            permit = frozen["permit"]
+            kind = "operation" if frozen["method"] == "POST" else "query"
+            record = payload["media"][kind + ":" + permit["operation_id"]]
+            require(record["status"] == "submitting" and digest(record["descriptor"]) == digest(frozen))
+            scope = payload["media"]["scope:" + record["scope_id"]]
+            self._continuation_authority_verified(scope, payload, authority)
+            require(is_continuation(record)
+                and digest(record["descriptor"]["continuation_authority"]) == digest(authority), "MEDIA_AUTHORITY_REJECTED")
             grant = payload["media"]["grant:" + permit["grant_id"]]
             require(grant["revoked_at"] is None)
             if kind == "operation":
