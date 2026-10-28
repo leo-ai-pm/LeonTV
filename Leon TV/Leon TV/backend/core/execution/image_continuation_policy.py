@@ -162,7 +162,7 @@ def _authority(policy, anchor, permit, authority):
     issued, deadline = timestamp(permit["issued_at"]), timestamp(permit["deadline_at"])
     require(0 < (deadline - issued).total_seconds() <= policy["request_deadline_seconds"])
     require(deadline <= timestamp(policy["valid_until"]))
-    if authority["schema_version"] == 3:
+    if authority["schema_version"] in {3, 4}:
         from core.execution.image_response_lifecycle import validate_response_policy
 
         response_policy = validate_response_policy(authority["response_policy"])
@@ -202,7 +202,7 @@ def make_continuation_permit(scope, grant, job, authority, *, operation_id, inde
         deadline = min(issued + timedelta(seconds=policy["request_deadline_seconds"]), timestamp(policy["valid_until"]))
         response = {}
         permit_type = ImageContinuationPermit
-        if authority["schema_version"] == 3:
+        if authority["schema_version"] in {3, 4}:
             from core.execution.image_response_lifecycle import validate_response_policy
 
             response_policy = validate_response_policy(authority["response_policy"])
@@ -236,7 +236,7 @@ def _submit_data(*, policy, budget_anchor, permit, continuation_authority, asset
                  manifest, shot_id, references, reference_bindings):
     policy, anchor = _model(policy, ImageToolPolicy), _model(budget_anchor, MediaBudgetAnchor)
     authority = _checked_authority(continuation_authority)
-    permit = _model(permit, ImageResponseContinuationPermit if authority["schema_version"] == 3 else ImageContinuationPermit)
+    permit = _model(permit, ImageResponseContinuationPermit if authority["schema_version"] in {3, 4} else ImageContinuationPermit)
     require(permit["action"] == "submit" and permit["shot_id"] == shot_id)
     _authority(policy, anchor, permit, authority)
     asset_input = product_assets.checked_asset_payload(asset_input)
@@ -263,7 +263,7 @@ def _submit_data(*, policy, budget_anchor, permit, continuation_authority, asset
         body["images"] = [f"data:{reference['mime_type']};base64,{reference['bytes_base64']}" for reference in references]
     wire = json.dumps(body, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
     require(len(wire.encode("utf-8")) <= policy["max_request_bytes"])
-    version = {"schema_version": 4, "kind": RESPONSE_KIND, "scope": RESPONSE_SCOPE} if authority["schema_version"] == 3 else {
+    version = {"schema_version": 4, "kind": RESPONSE_KIND, "scope": RESPONSE_SCOPE} if authority["schema_version"] in {3, 4} else {
         "schema_version": 2, "kind": KIND, "scope": SCOPE}
     return {**version, "method": "POST",
         "endpoint": policy["origin"] + "/v1/images/generations/async", "wire": wire,

@@ -55,14 +55,26 @@ def candidate_gate(payload, candidate, *, exclude_candidate=False):
             and permit["replacement_of"] == target["replacement_of"])
     own = [op for op in records(payload, "operation") if op["scope_id"] == scope["id"] and op["id"] != candidate["id"]]
     require(candidate["submission_index"] == len(own) + 1 <= authority["max_cumulative_submissions"])
-    require(not any(is_continuation(op) and op["shot_id"] == candidate["shot_id"] for op in own))
-    unknown = authority["unknown_disposition"]
-    old_key = "operation:" + unknown["operation_id"]
-    old = payload["media"][old_key]
-    require(old["scope_id"] == scope["id"] and old["task_id"] == scope["task_id"])
-    require(digest(old) == unknown["operation_hash"] and old["status"] == "unknown"
-            and old["raw"] is None and old["fee_id"] is None and old["delivery_id"] is None)
-    require(candidate["id"] != old["id"] and permit["nonce"] != old["descriptor"]["permit"]["nonce"])
+    if authority["schema_version"] == 4:
+        unknowns = authority["retained_unknown_plan"]["retained_unknowns"]
+        same_shot = [op for op in own if op["shot_id"] == candidate["shot_id"]]
+        if permit["replacement_of"] is None:
+            require(not same_shot)
+        else:
+            require(len(same_shot) == 1 and same_shot[0]["id"] == permit["replacement_of"]
+                and any(item["operation_id"] == permit["replacement_of"] for item in unknowns))
+    else:
+        require(not any(is_continuation(op) and op["shot_id"] == candidate["shot_id"] for op in own))
+        unknowns = [authority["unknown_disposition"]]
+    unknown_keys = []
+    for unknown in unknowns:
+        old_key = "operation:" + unknown["operation_id"]
+        old = payload["media"][old_key]
+        require(old["scope_id"] == scope["id"] and old["task_id"] == scope["task_id"])
+        require(digest(old) == unknown["operation_hash"] and old["status"] == "unknown"
+                and old["raw"] is None and old["fee_id"] is None and old["delivery_id"] is None)
+        require(candidate["id"] != old["id"] and permit["nonce"] != old["descriptor"]["permit"]["nonce"])
+        unknown_keys.append(old_key)
     require(all(op["descriptor"]["permit"]["nonce"] != permit["nonce"]
                 for kind in ("operation", "query") for op in records(payload, kind) if op["id"] != candidate["id"]))
     account_id = scope["account_id"]
@@ -72,7 +84,8 @@ def candidate_gate(payload, candidate, *, exclude_candidate=False):
                     and payload["media"]["scope:" + query["scope_id"]]["account_id"] == account_id
                     for query in records(payload, "query")))
     media = dict(payload["media"])
-    del media[old_key]
+    for old_key in unknown_keys:
+        del media[old_key]
     candidate_key = "operation:" + candidate["id"]
     if exclude_candidate:
         persisted = media.get(candidate_key)

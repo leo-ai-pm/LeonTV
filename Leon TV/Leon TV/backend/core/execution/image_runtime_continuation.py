@@ -29,6 +29,8 @@ DISCLOSURE_KIND = "image_runtime_continuation_disclosure_v1"
 AUTHORITY_KIND = "image_continuation_authority_v2"
 RESPONSE_AUTHORITY_KIND = "image_continuation_authority_v3"
 RESPONSE_DISCLOSURE_KIND = "image_runtime_continuation_disclosure_v2"
+RETAINED_AUTHORITY_KIND = "image_continuation_authority_v4"
+RETAINED_DISCLOSURE_KIND = "image_runtime_continuation_disclosure_v3"
 DISCLOSURE_FIELDS = {"schema_version", "kind", "control_hash", "scope_id", "scope_hash", "grant_id", "grant_hash",
     "intent_id", "intent_hash", "validity_activation_id", "validity_activation_hash", "parent_receipt_hash", "funding",
     "admission", "unknown_disposition", "remaining_jobs", "original_policy", "original_budget_anchor", "effective_policy",
@@ -95,10 +97,12 @@ def validate_authority(value):
     try:
         value = json_copy(value, limit=8 * 1048576)
         require(type(value) is dict)
-        response_enabled = value.get("kind") == RESPONSE_AUTHORITY_KIND
+        retained = value.get("kind") == RETAINED_AUTHORITY_KIND
+        response_enabled = retained or value.get("kind") == RESPONSE_AUTHORITY_KIND
         require(set(value) == AUTHORITY_FIELDS | ({"response_policy"} if response_enabled else set())
-            and type(value["schema_version"]) is int and value["schema_version"] == (3 if response_enabled else 2)
-            and value["kind"] == (RESPONSE_AUTHORITY_KIND if response_enabled else AUTHORITY_KIND))
+            | ({"retained_unknown_plan"} if retained else set())
+            and type(value["schema_version"]) is int and value["schema_version"] == (4 if retained else 3 if response_enabled else 2)
+            and value["kind"] == (RETAINED_AUTHORITY_KIND if retained else RESPONSE_AUTHORITY_KIND if response_enabled else AUTHORITY_KIND))
         if response_enabled:
             from core.execution.image_response_lifecycle import validate_response_policy
             validate_response_policy(value["response_policy"])
@@ -153,7 +157,15 @@ def validate_authority(value):
             and unknown["status_after_proposal"] == "unknown" and unknown["original_record_must_remain_unchanged"] is True
             and unknown["old_request_retry_authorized"] is False and unknown["zero_http_proven"] is False
             and unknown["zero_fee_proven"] is False and unknown["new_unknown_stops_continuation"] is True)
-        require(sum(target["replacement_of"] == unknown["operation_id"] for target in targets) == 1)
+        if retained:
+            from core.execution.image_retained_unknown import validate_plan
+            plan = validate_plan(value["retained_unknown_plan"])
+            require(all(_same(plan[key], value[key]) for key in ("scope_id", "scope_hash", "grant_id", "grant_hash", "max_cumulative_submissions")))
+            require(_same(plan["funded_targets"], targets))
+            require(any(item["operation_id"] == unknown["operation_id"] and item["operation_hash"] == unknown["operation_hash"]
+                for item in plan["retained_unknowns"]))
+        else:
+            require(sum(target["replacement_of"] == unknown["operation_id"] for target in targets) == 1)
         return value
     except Exception:
         raise unavailable() from None
@@ -164,11 +176,13 @@ def _disclosure(payload, quote):
 
     d = json_copy(quote["disclosure"], limit=16 * 1048576)
     require(type(d) is dict)
-    response_enabled = d.get("kind") == RESPONSE_DISCLOSURE_KIND
+    retained = d.get("kind") == RETAINED_DISCLOSURE_KIND
+    response_enabled = retained or d.get("kind") == RESPONSE_DISCLOSURE_KIND
     require(set(d) == DISCLOSURE_FIELDS | ({"response_policy"} if response_enabled else set())
-        and type(d["schema_version"]) is int and d["schema_version"] == (2 if response_enabled else 1)
-        and d["kind"] == (RESPONSE_DISCLOSURE_KIND if response_enabled else DISCLOSURE_KIND)
-        and d["required_contract_version"] == ("image_continuation_v3" if response_enabled else "image_continuation_v2"))
+        | ({"retained_unknown_plan"} if retained else set())
+        and type(d["schema_version"]) is int and d["schema_version"] == (3 if retained else 2 if response_enabled else 1)
+        and d["kind"] == (RETAINED_DISCLOSURE_KIND if retained else RESPONSE_DISCLOSURE_KIND if response_enabled else DISCLOSURE_KIND)
+        and d["required_contract_version"] == ("image_retained_unknown_v1" if retained else "image_continuation_v3" if response_enabled else "image_continuation_v2"))
     if response_enabled:
         from core.execution.image_response_lifecycle import validate_response_policy
         validate_response_policy(d["response_policy"])
@@ -187,6 +201,20 @@ def _disclosure(payload, quote):
         "validity_activation_id": a["id"], "validity_activation_hash": digest(a), "parent_receipt_hash": a["parent_receipt"]["receipt_hash"],
         "funding": fact, "admission": b["admission"], "unknown_disposition": b["unknown_disposition"], "remaining_jobs": b["remaining_jobs"],
         "original_policy": scope["policy"], "original_budget_anchor": scope["anchor"]}
+    if retained:
+        from core.execution.image_retained_unknown import validate_plan_history
+        plan = d["retained_unknown_plan"]
+        base = authority_for(payload, plan["base_runtime_activation_id"])
+        validate_plan_history(payload, scope, grant, plan, base, fact)
+        created = timestamp(quote["created_at"])
+        for item in plan["retained_unknowns"]:
+            cutoff = item["collector"]["cleanup_cutoff"]
+            ended = timestamp(cutoff) if cutoff is not None else timestamp(item["original_response_deadline_at"]) + timedelta(seconds=5)
+            require(ended <= created)
+        prior = authority_for(payload, d["previous_activation_id"])
+        require((_same(prior, base) and prior["schema_version"] in {2, 3})
+            or (prior["schema_version"] == 4 and _same(prior["retained_unknown_plan"], plan)))
+        bindings["remaining_jobs"] = plan["funded_targets"]
     require(all(_same(d[key], value) for key, value in bindings.items()))
     require(_same(d["effective_policy"], _effective(scope["policy"], d["effective_policy"]["valid_until"])))
     until, created = timestamp(d["effective_policy"]["valid_until"]), timestamp(quote["created_at"])
@@ -240,8 +268,11 @@ def authority_for(payload, activation_id):
                 "effective_policy", "code_manifest_hash", "unknown_disposition", "remaining_jobs")},
             "allocations": copy.deepcopy(d["funding"]["allocations"]), "max_cumulative_submissions": d["effective_policy"]["max_submissions"],
             "additional_risk_cny": "0.000000", "additional_paid_calls": 0}
-        if d["schema_version"] == 2:
+        if d["schema_version"] in {2, 3}:
             result.update(schema_version=3, kind=RESPONSE_AUTHORITY_KIND, response_policy=copy.deepcopy(d["response_policy"]))
+        if d["schema_version"] == 3:
+            result.update(schema_version=4, kind=RETAINED_AUTHORITY_KIND,
+                retained_unknown_plan=copy.deepcopy(d["retained_unknown_plan"]))
         result["authority_hash"] = digest(result)
         return validate_authority(result)
     except Exception:
@@ -276,6 +307,12 @@ def validate_transition(payload, previous=None):
                 prior = None if prior_id is None else old[ACTIVATION + ":" + prior_id]
                 require(d["previous_activation_id"] == prior_id and d["activation_sequence"] == (1 if prior is None else prior["activation_sequence"] + 1))
                 require(old["grant:" + d["grant_id"]]["revoked_at"] is None)
+                if d.get("kind") == RETAINED_DISCLOSURE_KIND:
+                    from core.execution.image_retained_unknown import validate_plan_history
+                    plan = d["retained_unknown_plan"]
+                    validate_plan_history(previous, old["scope:" + record["scope_id"]], old["grant:" + d["grant_id"]],
+                        plan, authority_for(previous, plan["base_runtime_activation_id"]),
+                        frozen_funding(previous, d["validity_activation_id"]), birth=True)
             else:
                 q = old[QUOTE + ":" + record["quote_id"]]
                 d = q["disclosure"]
@@ -294,6 +331,13 @@ def validate_history(state, payload):
             for record in frame["delta"].get("media", {}).values():
                 if record["kind"] == QUOTE:
                     d = _disclosure(prefix, record)
+                    if d.get("kind") == RETAINED_DISCLOSURE_KIND:
+                        from core.execution.image_retained_unknown import validate_plan_history
+                        plan = d["retained_unknown_plan"]
+                        validate_plan_history(prefix, prefix["media"]["scope:" + record["scope_id"]],
+                            prefix["media"]["grant:" + d["grant_id"]], plan,
+                            authority_for(prefix, plan["base_runtime_activation_id"]),
+                            frozen_funding(prefix, d["validity_activation_id"]), birth=True)
                     require(d["checkpoint"] == {"head_revision": frame["revision"] - 1,
                         "head_hash": frame["previous_hash"], "payload_hash": digest(prefix)})
             for namespace, values in frame["delta"].items():
@@ -347,6 +391,9 @@ def verified_current(control, activation_id):
         require(_same(funding, q["disclosure"]["funding"]))
         require(_same(_collect_code_manifest(control), q["disclosure"]["new_code_manifest"]))
         require(now() < timestamp(authority["effective_policy"]["valid_until"]))
+        if authority["schema_version"] == 4:
+            from core.execution.image_retained_unknown import verify_plan_current
+            verify_plan_current(control, payload, authority["retained_unknown_plan"])
         return payload, authority
     except Exception:
         raise unavailable() from None
@@ -362,12 +409,13 @@ def verify_current(control, payload, activation_id):
         raise unavailable() from None
 
 
-def quote_runtime_continuation(control, *, valid_until, response_window_seconds=None):
+def quote_runtime_continuation(control, *, valid_until, response_window_seconds=None, retain_unknown_risk=False):
     try:
         from core.execution import image_validity_continuation as validity
         from core.execution.image_response_lifecycle import make_response_policy
 
         response_policy = None if response_window_seconds is None else make_response_policy(response_window_seconds)
+        require(type(retain_unknown_risk) is bool and (not retain_unknown_risk or response_policy is not None))
         require(type(control) is LoadedImageControl)
         until = timestamp(valid_until)
         require(now() < until <= now() + timedelta(hours=24))
@@ -383,7 +431,11 @@ def quote_runtime_continuation(control, *, valid_until, response_window_seconds=
             for q in reversed(_own(payload, QUOTE, scope["id"])):
                 d = q["disclosure"]
                 if (_same(d["new_code_manifest"], manifest) and timestamp(d["effective_policy"]["valid_until"]) == until
-                        and _same(d.get("response_policy"), response_policy)):
+                        and _same(d.get("response_policy"), response_policy)
+                        and ("retained_unknown_plan" in d) is retain_unknown_risk):
+                    if retain_unknown_risk:
+                        from core.execution.image_retained_unknown import verify_plan_current
+                        verify_plan_current(control, payload, d["retained_unknown_plan"])
                     if prior_id is not None and payload["media"][ACTIVATION + ":" + prior_id]["quote_id"] == q["id"]:
                         return {"quote": copy.deepcopy(q), "replayed": True, "automatic_followup_calls": 0}
                     frame = _birth(_state(store), q)
@@ -406,6 +458,18 @@ def quote_runtime_continuation(control, *, valid_until, response_window_seconds=
                 require(until > now() + timedelta(seconds=120 + response_policy["response_window_seconds"]))
                 d.update(schema_version=2, kind=RESPONSE_DISCLOSURE_KIND,
                     response_policy=response_policy, required_contract_version="image_continuation_v3")
+            if retain_unknown_risk:
+                from core.execution.image_retained_unknown import build_plan, verify_plan_current
+                require(prior_id is not None)
+                previous_authority = authority_for(payload, prior_id)
+                if previous_authority["schema_version"] == 4:
+                    plan = copy.deepcopy(previous_authority["retained_unknown_plan"])
+                    verify_plan_current(control, payload, plan)
+                else:
+                    plan = build_plan(control, payload, scope, grant, previous_authority, funding)
+                d.update(schema_version=3, kind=RETAINED_DISCLOSURE_KIND,
+                    retained_unknown_plan=plan, remaining_jobs=copy.deepcopy(plan["funded_targets"]),
+                    required_contract_version="image_retained_unknown_v1")
             q = _record(QUOTE, scope, disclosure=d, disclosure_hash=digest(d))
             payload["media"][QUOTE + ":" + q["id"]] = q
             return {"quote": copy.deepcopy(q), "replayed": False, "automatic_followup_calls": 0}
@@ -422,6 +486,9 @@ def activate_runtime_continuation(control, quote_id, *, disclosure_hash, consent
             require(quote["disclosure_hash"] == disclosure_hash)
             d = _disclosure(payload, quote)
             _current(control, payload, d["validity_activation_id"])
+            if d.get("kind") == RETAINED_DISCLOSURE_KIND:
+                from core.execution.image_retained_unknown import verify_plan_current
+                verify_plan_current(control, payload, d["retained_unknown_plan"])
             require(now() < timestamp(d["effective_policy"]["valid_until"]) and _same(_collect_code_manifest(control), d["new_code_manifest"]))
             for a in _own(payload, ACTIVATION, quote["scope_id"]):
                 if a["quote_id"] == quote_id:

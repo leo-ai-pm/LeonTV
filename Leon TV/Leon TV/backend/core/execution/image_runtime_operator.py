@@ -33,6 +33,15 @@ def _flags():
         "additional_risk_cny": "0.000000", "additional_paid_calls": 0, "dispatch_available": False}
 
 
+def _retained_summary(plan):
+    return {"retained_unknown_count": len(plan["retained_unknowns"]),
+        "funded_jobs": [{key: target[key] for key in ("shot_id", "attempt_version", "planned_submission_index")}
+            for target in plan["funded_targets"]],
+        "deferred_jobs": [{key: target[key] for key in ("shot_id", "reason", "required_paid_calls", "required_risk_cny")}
+            for target in plan["deferred_targets"]],
+        "retained_risk_released_cny": plan["retained_risk_released_cny"], "call_slots_released": plan["call_slots_released"]}
+
+
 def _status(control, result=None, resource=None):
     payload = ExecutionStore(control.roots["execution"]).read_only()
     own = [r for r in payload.get("media", {}).values() if r["task_id"] == control.document.admission.task_id]
@@ -50,6 +59,8 @@ def _status(control, result=None, resource=None):
             revision_sequence=authority["revision_sequence"], cumulative_max_submissions=authority["max_cumulative_submissions"])
         if "response_policy" in authority:
             value["response_policy"] = authority["response_policy"]
+        if "retained_unknown_plan" in authority:
+            value["retained_unknown_plan"] = _retained_summary(authority["retained_unknown_plan"])
     else:
         value.update(journal_stage="not_activated", current_authority_valid=False)
     if result is not None:
@@ -63,6 +74,10 @@ def _status(control, result=None, resource=None):
             value["response_policy"] = quote["disclosure"]["response_policy"]
         else:
             value.pop("response_policy", None)
+        if "retained_unknown_plan" in quote["disclosure"]:
+            value["retained_unknown_plan"] = _retained_summary(quote["disclosure"]["retained_unknown_plan"])
+        else:
+            value.pop("retained_unknown_plan", None)
     return value
 
 
@@ -72,12 +87,13 @@ def main(argv=None):
     parser.add_argument("--control")
     parser.add_argument("--valid-until")
     parser.add_argument("--response-window-seconds", type=int)
+    parser.add_argument("--retain-unknown-risk", action="store_true")
     parser.add_argument("--quote")
     parser.add_argument("--disclosure-hash")
     parser.add_argument("--consent", action="store_true")
     try:
         args = parser.parse_args(argv)
-        extras = (args.valid_until, args.quote, args.disclosure_hash, args.consent, args.response_window_seconds is not None)
+        extras = (args.valid_until, args.quote, args.disclosure_hash, args.consent, args.response_window_seconds is not None, args.retain_unknown_risk)
         if not args.control:
             require(args.command == "status" and not any(extras))
             value = {"mode": "off", **_flags()}
@@ -90,10 +106,10 @@ def main(argv=None):
                 value = _status(control)
             elif args.command == "quote":
                 require(bool(args.valid_until) and not any((args.quote, args.disclosure_hash, args.consent)))
-                result = quote_runtime_continuation(control, valid_until=args.valid_until, response_window_seconds=args.response_window_seconds)
+                result = quote_runtime_continuation(control, valid_until=args.valid_until, response_window_seconds=args.response_window_seconds, retain_unknown_risk=args.retain_unknown_risk)
                 value = _status(control, result, "quote")
             else:
-                require(bool(args.quote) and bool(args.disclosure_hash) and args.consent is True and not args.valid_until and args.response_window_seconds is None)
+                require(bool(args.quote) and bool(args.disclosure_hash) and args.consent is True and not args.valid_until and args.response_window_seconds is None and not args.retain_unknown_risk)
                 result = activate_runtime_continuation(control, args.quote,
                     disclosure_hash=args.disclosure_hash, consent=args.consent)
                 value = _status(control, result, "activation")

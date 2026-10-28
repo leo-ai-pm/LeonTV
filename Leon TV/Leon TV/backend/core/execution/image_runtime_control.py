@@ -84,11 +84,13 @@ def runtime_status(control, operation_id=None):
         except Exception:
             pass
     targets = authority["remaining_jobs"]
+    deferred = authority.get("retained_unknown_plan", {}).get("deferred_targets", [])
     delivered = {op["shot_id"] for op in operations if op["delivery_id"] is not None}
     reason = "IMAGE_RUNTIME_CONTINUATION_UNAVAILABLE"
     if valid:
-        view = {**payload, "media": {k: v for k, v in payload["media"].items()
-            if k != "operation:" + authority["unknown_disposition"]["operation_id"]}}
+        unknowns = authority.get("retained_unknown_plan", {}).get("retained_unknowns", [authority["unknown_disposition"]])
+        excluded = {"operation:" + item["operation_id"] for item in unknowns}
+        view = {**payload, "media": {k: v for k, v in payload["media"].items() if k not in excluded}}
         if account_halted(payload, scope["account_id"]):
             reason = "EMPIRICAL_RISK_OVERRUN"
         elif has_pending_unknown(view, scope["account_id"]):
@@ -104,7 +106,7 @@ def runtime_status(control, operation_id=None):
             reason = "SCOPE_CALL_LIMIT"
         else:
             reason = "RESERVE_EXACT_CANDIDATE"
-    result = {"mode": control.document.mode, "runtime_mode": "image_continuation_v3" if authority["schema_version"] == 3 else "image_continuation_v2",
+    result = {"mode": control.document.mode, "runtime_mode": "image_retained_unknown_v1" if authority["schema_version"] == 4 else "image_continuation_v3" if authority["schema_version"] == 3 else "image_continuation_v2",
         "runtime_authority_valid": valid, "dispatch_available": ready,
         "blocked_reason": None if ready else reason,
         "global_unknown_retained": has_pending_unknown(payload, scope["account_id"]),
@@ -114,6 +116,12 @@ def runtime_status(control, operation_id=None):
         "additional_risk_cny": "0.000000", "additional_paid_calls": 0,
         "media": projection(payload, control.document.admission.task_id),
         "automatic_followup_calls": 0, "query_available": False}
+    if authority["schema_version"] == 4:
+        result["funded_remaining_jobs"] = result["remaining_jobs"]
+        result["deferred_jobs"] = sum(target["shot_id"] not in delivered for target in deferred)
+        result["remaining_jobs"] += result["deferred_jobs"]
+        if not result["funded_remaining_jobs"] and result["deferred_jobs"]:
+            result.update(dispatch_available=False, blocked_reason="NEEDS_FUNDING_OR_NEW_PLAN")
     if not result["remaining_jobs"]:
         result.update(dispatch_available=False, blocked_reason="SCOPE_FINISHED")
     if operation_id is not None:
