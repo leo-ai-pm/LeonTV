@@ -2,7 +2,7 @@
 
 目标是从可控的视频创作工作台，逐步演进为 Agent Harness，再探索更长期的 Personal Agent。每一阶段以可复核的真实行为验收，不以演示文案或目录名称判断完成。
 
-**当前推进点：D44已接入响应事实诊断与单次校验内的解码复用。原403仍未确认受理，根因未定；图集保持2／4、三笔unknown保留，源码变化后旧运行批准不可执行。下一步先做有限对照试验设计与原账户内的新版本处置计划，并继续优化JSON和历史重建开销。** [D44接口](./IMAGE-FAILURE-DIAGNOSIS-API.md) · [验收与限制](./IMAGE-FAILURE-DIAGNOSIS-VALIDATION.md)。
+**当前推进点：D45已完成一次A诊断的原生资金、执行、精确核费、查询、恢复和产物隔离，并通过相关合成验收。真实A尚未执行；B延期，正式图集仍为2／4，原三笔unknown保留。下一步在固定源码后执行一次历史成功输入的控制请求，遇到新未知即停，再依证据决定正式制作如何继续。** [D45接口](./IMAGE-BOUNDED-COMPARISON-API.md) · [验收与限制](./IMAGE-BOUNDED-COMPARISON-VALIDATION.md)。
 
 ## 当前基础
 
