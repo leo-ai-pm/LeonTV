@@ -25,6 +25,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 已受理任务观察续接 | D40独立仅GET批准，原collector取回第二镜，65.81秒入口链路，技术交付／重放通过 | 新生成POST权限、全部生成性能已验收、视觉质量或完整自主制作通过 |
 | 图片提交单次校验 | D41普通v2每次权限决定只读一个新鲜snapshot，入口83.78秒；原响应超时后停为unknown | 原请求已确认受理、平台同时间窗候选可直接替代回执、第三镜已交付或第四镜可继续 |
 | 图片响应生命周期 | D42新报价／authority／permit／claim明确区分提交与响应截止，原生链路已接线 | 旧unknown自动恢复、第三镜已交付、新合同真实慢响应验收通过或增加调用额度 |
+| 未知风险处置续接 | D43 authority4冻结两笔旧unknown及证据，原4+1分配只给第三镜新版本，第四镜明确deferred | 旧unknown被释放、可无限重试或自动加预算；本次新POST为HTTP403／unknown，累计三笔未知，当前派发与查询均关闭 |
 | 内部参考图转换 | 独立报价绑定转换profile／encoder，原图与衍生证明并存；JPEG需显式允许 | 技术转换即视觉通过、自动裁剪或任意压缩 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
@@ -46,7 +47,13 @@ D40的 `image_observation_continuation/policy/control/runtime/operator` 在原me
 
 D41将同次snapshot复用接入普通v2 POST，显式control与root／activation／guard方法绑定；三个安全边界各自重新读取，事务payload仍须与真实head一致。无新生产模块，4个原模块修改，2个测试文件新增。第三镜真实提交到collector为83.780秒，原120秒permit未延长；剩余响应观察时间约56.165秒后collector按绝对期限关闭，无原raw。新增unknown阻止第四镜，平台SUCCESS与502候选缺客户端标识，仅作未绑定观察保留。此处暴露的期限耦合由D42的新版本合同处理，旧permit和unknown不追溯改写。[D41证据及边界](./IMAGE-SUBMIT-SNAPSHOT-VALIDATION.md)。
 
-D42在原运行报价中增加明确响应策略：v3 authority、schema4 permit与claim2绑定响应窗口，派发保持120秒，响应截止最多为签发后300秒。原native账本、candidate gate和父资金继续生效；旧合同原样可重建，新unknown即使换窗口或续期也不解除。实际任务74帧与2／4交付保持，未新增真实生成，下一步是第三镜精确对账与未知风险处置。[D42合同](./IMAGE-RESPONSE-LIFECYCLE-API.md) · [验收](./IMAGE-RESPONSE-LIFECYCLE-VALIDATION.md)。
+D42在原运行报价中增加明确响应策略：v3 authority、schema4 permit与claim2绑定响应窗口，派发保持120秒，响应截止最多为签发后300秒。原native账本、candidate gate和父资金继续生效；旧合同原样可重建，新unknown即使换窗口或续期也不解除。D42当轮实际任务74帧与2／4交付保持，未新增真实生成；后续未知风险处置见D43，旧合同继续作为历史保留。[D42合同](./IMAGE-RESPONSE-LIFECYCLE-API.md) · [验收](./IMAGE-RESPONSE-LIFECYCLE-VALIDATION.md)。
+
+D43在同一原生账户增加 `image_retained_unknown` 合同。新authority4完整绑定原操作、两笔unknown的精确collector证据、既留资金和剩余名额；未知风险不释放、历史请求不改写。原D37两笔4+1分配中，最后一个名额仅用于第三镜attempt2／累计index5，第四镜明确deferred。该计划只许可精确的新候选；nonce或候选复用、新unknown及证据漂移继续被拒绝。原v3描述符、schema4 permit及claim2响应合同保持，未增加父资金。
+
+原任务74→76仅追加运行时revision4批准，随后一次真实POST将记录推进至79。完整HTTP403回执未提供accepted task，故保存为unknown，不能据此启动查询或认领费用。签发至claim94.930秒满足原120秒合同；入口至prepare124.648秒未达性能目标。claim至回执8.011秒，因此本次没有验证超过旧120秒窗口的慢响应。当前scope1／grant1／POST5／GET3／交付2／费用2／unknown3，`MEDIA_RESPONSE_UNCONFIRMED`使派发和查询均不可用。父46条、原100元授权、82.37元保留风险和54次保守总上限保持；旧74／76前缀及四笔旧图片操作不变。
+
+D43源码版本为`8cc050d`：377个公开文件、336个运行时代码闭包文件，修改5个原模块并新增1个helper及4个测试文件。229项相关测试在互不重叠的成功原生分支、unknown原生分支及兼容组通过，外部socket尝试为0；10文件Ruff通过。合成成功分支证明合同接线，不能替代这次失败的真实生成验收。通用模型列表鉴权可用也不证明生成通道健康。现有保留计划只支持此前没有原始回执的unknown，新出现的raw-present unknown尚不符合该合同；当前authority续期不能授予重试权限。下一步先完成精确403故障对账和入口性能排查，任何新生成须在原账户建立保留三笔unknown及累计上限的新版本计划；不得自动加资金或复用旧候选。[D43接口](./IMAGE-RETAINED-UNKNOWN-API.md) · [验收与实际边界](./IMAGE-RETAINED-UNKNOWN-VALIDATION.md)。
 
 ## 现役创作链路
 
