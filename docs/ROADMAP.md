@@ -2,7 +2,7 @@
 
 目标是从可控的视频创作工作台，逐步演进为 Agent Harness，再探索更长期的 Personal Agent。每一阶段以可复核的真实行为验收，不以演示文案或目录名称判断完成。
 
-**当前推进点：D45已完成一次A诊断的原生资金、执行、精确核费、查询、恢复和产物隔离，并通过相关合成验收。真实A尚未执行；B延期，正式图集仍为2／4，原三笔unknown保留。下一步在固定源码后执行一次历史成功输入的控制请求，遇到新未知即停，再依证据决定正式制作如何继续。** [D45接口](./IMAGE-BOUNDED-COMPARISON-API.md) · [验收与限制](./IMAGE-BOUNDED-COMPARISON-VALIDATION.md)。
+**当前推进点：D45一次A已在原账户内真实受理（HTTP200），没有新增unknown；资金、执行、核费、查询、恢复及诊断产物隔离的实现已通过相关合成验收。当前控制台登录失效，待精确核费后查回同一任务，不重发。B延期，正式图集仍2／4、原三笔unknown保留。ENTRY→claim150.336秒仍未达120秒目标，是下一项性能工作；完整四镜、视觉、视频与人工终验继续推进。** [D45接口](./IMAGE-BOUNDED-COMPARISON-API.md) · [真实受理与验收边界](./IMAGE-BOUNDED-COMPARISON-VALIDATION.md)。
 
 ## 当前基础
 
