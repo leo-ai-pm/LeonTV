@@ -166,12 +166,21 @@ def _admit_record(control, payload, kind, record_id):
 
 
 def _resource(record):
+    """Project verified native facts without deriving new execution authority."""
     result = {name: record[name] for name in ("id", "scope_id", "task_id", "status", "shot_id", "query_index",
         "quote_id", "grant_id", "disclosure_hash", "revoked_at") if name in record}
     if record["kind"] == "operation":
         result.update(fee_observed=record["fee_id"] is not None, delivered=record["delivery_id"] is not None)
     if record["kind"] in {"operation", "query"}:
         result["native_start_recorded"] = record["capture_started_at"] is not None
+        receipt = record["receipt"]
+        result["response_diagnostic"] = {
+            "raw_captured": record["raw"] is not None,
+            "http_status": None if receipt is None else receipt["http_status"],
+            "receipt_classification": None if receipt is None else receipt["classification"],
+            "accepted_task_present": receipt is not None and receipt["accepted_task_id"] is not None,
+            "retry_authorized": False,
+        }
     return result
 
 

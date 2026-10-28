@@ -305,11 +305,12 @@ def _descriptor_snapshot():
     No authority, time, filesystem or credential result is retained. Every new
     journal snapshot gets a fresh set, including nested reconstructions.
     """
+    from core.execution.image_receipts import _delivery_snapshot
     from core.execution.reference_derivation import _reference_snapshot
 
     token = _SNAPSHOT_PROOFS.set({"inputs": set(), "bytes": 0})
     try:
-        with _reference_snapshot():
+        with _reference_snapshot(), _delivery_snapshot():
             yield
     finally:
         _SNAPSHOT_PROOFS.reset(token)

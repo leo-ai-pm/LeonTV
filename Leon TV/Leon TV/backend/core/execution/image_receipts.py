@@ -2,10 +2,13 @@
 import hashlib
 import io
 import re
+import threading
 import warnings
+from contextlib import contextmanager
+from contextvars import ContextVar
 from urllib.parse import urlsplit
 
-from PIL import Image
+from PIL import Image, ImageFile
 
 from core.creator.store import CreatorError, digest
 from core.execution.image_response_lifecycle import IMAGE_KIND, response_deadline
@@ -17,6 +20,63 @@ TASK_IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 MAX_IMAGE_BYTES = 32 * 1048576
 MAX_IMAGE_PIXELS = 32 * 1048576
 MAX_IMAGE_DIMENSION = 8192
+_DELIVERY_PROOFS = ContextVar("image_delivery_snapshot_proofs", default=None)
+_MAX_DELIVERY_PROOFS = 32
+_MAX_DELIVERY_PROOF_BYTES = 16 * 1048576
+
+
+@contextmanager
+def _delivery_snapshot():
+    """Successful byte-decoding proofs live in one synchronous snapshot only."""
+    facts = {"inputs": {}, "bytes": 0, "thread": threading.get_ident(), "active": True}
+    token = _DELIVERY_PROOFS.set(facts)
+    try:
+        yield
+    finally:
+        # Invalidate even a context copied while this read was active.
+        facts["active"] = False
+        facts["inputs"].clear()
+        facts["bytes"] = 0
+        _DELIVERY_PROOFS.reset(token)
+
+
+def _decode_image_shape(image_bytes):
+    """Original complete decoder checks, with no receipt or authority input."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", Image.DecompressionBombWarning)
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            width, height = image.size
+            format_name = image.format
+            _require(format_name in {"PNG", "JPEG", "WEBP"})
+            _require(type(width) is int and type(height) is int and width > 0 and height > 0)
+            _require(width <= MAX_IMAGE_DIMENSION and height <= MAX_IMAGE_DIMENSION
+                     and width * height <= MAX_IMAGE_PIXELS and width * 16 == height * 9)
+            _require(getattr(image, "n_frames", 1) == 1 and not getattr(image, "is_animated", False))
+            image.verify()
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            image.load()
+            _require(image.size == (width, height) and image.format == format_name)
+    return width, height, format_name
+
+
+def _decoded_image_shape(image_bytes):
+    _require(type(image_bytes) is bytes and 0 < len(image_bytes) <= MAX_IMAGE_BYTES)
+    facts = _DELIVERY_PROOFS.get()
+    if facts is None or not facts["active"] or facts["thread"] != threading.get_ident():
+        return _decode_image_shape(image_bytes)
+    # Complete immutable bytes are the key, never a caller-supplied digest or
+    # receipt. Limits remain part of the pure decoding conditions. Each caller
+    # still independently checks its exact descriptor, response and task.
+    key = (image_bytes, MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS,
+           Image.MAX_IMAGE_PIXELS, ImageFile.LOAD_TRUNCATED_IMAGES)
+    if key in facts["inputs"]:
+        return facts["inputs"][key]
+    shape = _decode_image_shape(image_bytes)
+    if (len(facts["inputs"]) < _MAX_DELIVERY_PROOFS
+            and facts["bytes"] + len(image_bytes) <= _MAX_DELIVERY_PROOF_BYTES):
+        facts["inputs"][key] = shape
+        facts["bytes"] += len(image_bytes)
+    return shape
 
 
 def _fail(code="IMAGE_RECEIPT_INVALID"):
@@ -206,21 +266,7 @@ def verify_delivery(query_request, query_raw, image_bytes):
     try:
         receipt = decode_query(query_request, query_raw)
         _require(receipt["classification"] == "completed")
-        _require(type(image_bytes) is bytes and 0 < len(image_bytes) <= MAX_IMAGE_BYTES)
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(image_bytes)) as image:
-                width, height = image.size
-                format_name = image.format
-                _require(format_name in {"PNG", "JPEG", "WEBP"})
-                _require(type(width) is int and type(height) is int and width > 0 and height > 0)
-                _require(width <= MAX_IMAGE_DIMENSION and height <= MAX_IMAGE_DIMENSION
-                         and width * height <= MAX_IMAGE_PIXELS and width * 16 == height * 9)
-                _require(getattr(image, "n_frames", 1) == 1 and not getattr(image, "is_animated", False))
-                image.verify()
-            with Image.open(io.BytesIO(image_bytes)) as image:
-                image.load()
-                _require(image.size == (width, height) and image.format == format_name)
+        width, height, format_name = _decoded_image_shape(image_bytes)
         result = {"schema_version": 1, "kind": "image_delivery_v1",
                   "descriptor_hash": query_request.descriptor_hash, "query_raw_hash": digest(query_raw),
                   "query_receipt_hash": receipt["receipt_hash"], "accepted_task_id": receipt["accepted_task_id"],
