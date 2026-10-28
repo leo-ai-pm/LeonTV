@@ -26,6 +26,7 @@ LeonTV 围绕 AI 视频创作组织执行能力，目标架构为 Agent Harness�
 | 图片提交单次校验 | D41普通v2每次权限决定只读一个新鲜snapshot，入口83.78秒；原响应超时后停为unknown | 原请求已确认受理、平台同时间窗候选可直接替代回执、第三镜已交付或第四镜可继续 |
 | 图片响应生命周期 | D42新报价／authority／permit／claim明确区分提交与响应截止，原生链路已接线 | 旧unknown自动恢复、第三镜已交付、新合同真实慢响应验收通过或增加调用额度 |
 | 未知风险处置续接 | D43 authority4冻结两笔旧unknown及证据，原4+1分配只给第三镜新版本，第四镜明确deferred | 旧unknown被释放、可无限重试或自动加预算；本次新POST为HTTP403／unknown，累计三笔未知，当前派发与查询均关闭 |
+| 图片响应诊断与解码证明 | D44复用原三个status入口的五字段只读摘要；同次重建内有界复用完整图像字节解码 | 403原因已查明、费用已确认、可重试／查询，或性能目标已通过；旧批准因源码变化失效 |
 | 内部参考图转换 | 独立报价绑定转换profile／encoder，原图与衍生证明并存；JPEG需显式允许 | 技术转换即视觉通过、自动裁剪或任意压缩 |
 | 目标创作闭环 | 真实Planner／文字Reviewer已在显式范围走通；素材／视觉／视频及人工终验继续接入 | 已交付完整自主创作、标准 A2A、长期记忆或 Personal Agent |
 
@@ -53,7 +54,21 @@ D43在同一原生账户增加 `image_retained_unknown` 合同。新authority4�
 
 原任务74→76仅追加运行时revision4批准，随后一次真实POST将记录推进至79。完整HTTP403回执未提供accepted task，故保存为unknown，不能据此启动查询或认领费用。签发至claim94.930秒满足原120秒合同；入口至prepare124.648秒未达性能目标。claim至回执8.011秒，因此本次没有验证超过旧120秒窗口的慢响应。当前scope1／grant1／POST5／GET3／交付2／费用2／unknown3，`MEDIA_RESPONSE_UNCONFIRMED`使派发和查询均不可用。父46条、原100元授权、82.37元保留风险和54次保守总上限保持；旧74／76前缀及四笔旧图片操作不变。
 
-D43源码版本为`8cc050d`：377个公开文件、336个运行时代码闭包文件，修改5个原模块并新增1个helper及4个测试文件。229项相关测试在互不重叠的成功原生分支、unknown原生分支及兼容组通过，外部socket尝试为0；10文件Ruff通过。合成成功分支证明合同接线，不能替代这次失败的真实生成验收。通用模型列表鉴权可用也不证明生成通道健康。现有保留计划只支持此前没有原始回执的unknown，新出现的raw-present unknown尚不符合该合同；当前authority续期不能授予重试权限。下一步先完成精确403故障对账和入口性能排查，任何新生成须在原账户建立保留三笔unknown及累计上限的新版本计划；不得自动加资金或复用旧候选。[D43接口](./IMAGE-RETAINED-UNKNOWN-API.md) · [验收与实际边界](./IMAGE-RETAINED-UNKNOWN-VALIDATION.md)。
+D43源码版本为`8cc050d`：377个公开文件、336个运行时代码闭包文件，修改5个原模块并新增1个helper及4个测试文件。229项相关测试在互不重叠的成功原生分支、unknown原生分支及兼容组通过，外部socket尝试为0；10文件Ruff通过。合成成功分支证明合同接线，不能替代这次失败的真实生成验收。通用模型列表鉴权可用也不证明生成通道健康。该保留计划只支持此前没有原始回执的unknown，新出现的raw-present unknown尚不符合该合同；单纯续期不能授予重试权限。D43之后安排精确403故障对账和入口性能排查，D44结果见下文；任何新生成仍须在原账户建立保留三笔unknown及累计上限的新版本计划。[D43接口](./IMAGE-RETAINED-UNKNOWN-API.md) · [验收与实际边界](./IMAGE-RETAINED-UNKNOWN-VALIDATION.md)。
+
+### D44：响应事实投影与单次校验内的纯解码证明
+
+D44修改`image_operator`、`image_policy`、`image_receipts`三个现有生产模块，新增两个测试文件；公开源码379个，运行时代码闭包仍为336个，没有新增生产模块。普通图片、runtime续接和仅GET观察的status共用`_resource`，输出固定五字段`response_diagnostic`：`raw_captured`、`http_status`、`receipt_classification`、`accepted_task_present`和恒为false的`retry_authorized`。投影只消费已验证记录，不再次解析供应商正文；`raw_captured`不证明collector文件此刻完整，query中的任务身份也可能来自父POST，不能据此断言GET成功。
+
+完整HTTP403按原decoder严格回放仍为`unconfirmed`。成功第二镜与失败第三镜的路径、模型、字段结构、参数和参考编码相同，第三镜两次wire相等；没有发现有证据支持的客户端修复，尚不能确定根因，也未排除内容影响或证实上游故障。D43先前独立通用鉴权探针的结果只说明该探针成功，不能替代生成链路受理、费用或健康证据；D44未读取Key或执行新的鉴权探针。
+
+`_descriptor_snapshot`内新增线程内的`_delivery_snapshot`，最多保留32项、16MiB成功解码输入。键包含严格完整不可变图像字节、模块与Pillow尺寸／像素限制及截断策略；仅active的原线程可复用，嵌套上下文独立，`finally`清理并使旧上下文失效。PNG／JPEG／WEBP的完整格式、尺寸、单帧、比例、`verify()`及`load()`检查保持；每次调用仍验证自己的请求／任务／回执／期限，原descriptor、receipt与delivery的schema及hash不改。失败不入表，超过容量仍执行完整解码。这不缓存执行权限，也不合并独立Key前／后和最终collector检查。
+
+原79帧只读校验的完整图像解码实测47→2，统计对象不是`PIL.open`。两组关闭／开启复用的耗时分别为15.583706／14.542195秒、15.853126／16.443048秒，payload和保护文件一致。总耗时有波动，尚不能证明稳定提速，更不能视为真实ENTRY低于120秒验收；JSON复制和历史重建仍是后续优化重点。相关测试与只读实测见[D44验收](./IMAGE-FAILURE-DIAGNOSIS-VALIDATION.md)。
+
+本轮原79帧、2184个保护文件和父46条记录均保持；scope1／grant1／POST5／GET3／交付2／费用2／unknown3、原100元授权、82.37元本地保留风险及54次累计上限不变。源码变化后`runtime_authority_valid=false`、派发与查询为false，旧批准只作历史事实。没有新批准、Key读取、生成POST／GET、核费、下载、前端或共享服务重启及推送。图集仍为2／4、质量`not_reviewed`、人工终验待完成，完整A2A与Personal Agent未验收。[D44接口与证明边界](./IMAGE-FAILURE-DIAGNOSIS-API.md)。
+
+下一步先定义针对403的有限对照试验与精确证据要求，再实现原账户内适用的新版本处置计划；保留全部unknown、风险和累计上限，不重放D43、不猜task ID或费用，不静默切换端点／模型／权限。新运行批准继续在原100元授权内处理，无需用户重复提供Key、登录或预算。
 
 ## 现役创作链路
 
