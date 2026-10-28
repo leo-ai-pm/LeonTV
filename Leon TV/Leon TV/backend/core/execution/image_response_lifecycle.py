@@ -4,6 +4,7 @@ from datetime import datetime
 from core.creator.store import CreatorError, digest
 
 IMAGE_KIND = "controlled_image_http_v3"
+RESPONSE_KINDS = frozenset({IMAGE_KIND, "controlled_image_comparison_http_v1"})
 RESPONSE_KIND = "image_response_observation_v1"
 RESPONSE_FIELDS = frozenset({"response_deadline_at", "response_window_seconds", "response_contract_hash"})
 
@@ -42,7 +43,7 @@ def response_deadline(binding):
     """Return the immutable response cutoff, rejecting extension of old bindings."""
     _require(type(binding) is dict)
     dispatch = _timestamp(binding.get("deadline_at"))
-    if binding.get("kind") != IMAGE_KIND:
+    if binding.get("kind") not in RESPONSE_KINDS:
         _require(not RESPONSE_FIELDS.intersection(binding))
         return dispatch
     _require(RESPONSE_FIELDS.issubset(binding))

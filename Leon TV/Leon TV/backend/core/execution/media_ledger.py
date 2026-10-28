@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from core.creator.store import ID_RE, KEY_RE, CreatorError, digest
 from core.execution.fees import FrozenFeeSource, operation_basis, parse_export
+from core.execution.image_comparison_schema import FIELDS as COMPARISON_FIELDS
 from core.execution.image_fees import candidate_for
 from core.execution.image_policy import FrozenImageRequest, ImageToolPolicy, MediaBudgetAnchor
 from core.execution.image_receipts import decode_query, decode_submit, verify_delivery
@@ -42,6 +43,7 @@ FIELDS = {
     "image_observation_activation": {"source_operation_id", "quote_id", "disclosure_hash", "previous_activation_id", "activation_sequence", "consent"},
     "key": {"verb", "request", "request_hash", "resource_key"},
 }
+FIELDS.update(COMPARISON_FIELDS)
 COMMON = {"schema_version", "kind", "id", "scope_id", "task_id", "created_at"}
 STATES = {"reserved", "submitting", "unknown", "accepted", "rejected", "pending", "completed", "failed"}
 
@@ -150,7 +152,7 @@ def _record_fields(record, media):
         fields = fields | {"manifest_origin"}
     if record["kind"] == "operation" and "reference_profile" in media.get("scope:" + str(record.get("scope_id")), {}):
         fields = fields | {"reference_profile_hash", "reference_derivations"}
-    if record["kind"] == "fee" and record.get("candidate", {}).get("kind") == "image_task_fee_candidate_v1":
+    if record["kind"] in {"fee", "image_comparison_fee"} and record.get("candidate", {}).get("kind") == "image_task_fee_candidate_v1":
         fields = fields | {"task_fee_source", "account_export_base64"}
     return fields
 
@@ -162,7 +164,7 @@ def account_halted(payload, account_id):
     if any(op["account_id"] == account_id and op.get("empirical", {}).get("fee_status") == "overrun" for op in payload["operations"].values()):
         return True
     scopes = {scope["id"] for scope in records(payload, "scope") if scope["account_id"] == account_id}
-    return any(fee["scope_id"] in scopes and fee["candidate"]["overrun"] for fee in records(payload, "fee"))
+    return any(fee["scope_id"] in scopes and fee["candidate"]["overrun"] for fee in records(payload, "fee") + records(payload, "image_comparison_fee"))
 
 
 def has_pending_unknown(payload, account_id, exclude_operation_id=None):
@@ -171,7 +173,7 @@ def has_pending_unknown(payload, account_id, exclude_operation_id=None):
         return True
     scopes = {scope["id"] for scope in records(payload, "scope") if scope["account_id"] == account_id}
     return any(op["scope_id"] in scopes and op["id"] != exclude_operation_id and op["status"] in {"submitting", "unknown"}
-               for op in records(payload, "operation"))
+               for op in records(payload, "operation") + records(payload, "image_comparison_operation") + records(payload, "image_comparison_query"))
 
 
 def has_pending_fees(payload, account_id, exclude_operation_id=None):
@@ -180,7 +182,7 @@ def has_pending_fees(payload, account_id, exclude_operation_id=None):
         return True
     scopes = {scope["id"] for scope in records(payload, "scope") if scope["account_id"] == account_id}
     return any(op["scope_id"] in scopes and op["id"] != exclude_operation_id and op["fee_id"] is None
-               for op in records(payload, "operation"))
+               for op in records(payload, "operation") + records(payload, "image_comparison_operation"))
 
 
 def fee_claimed(payload, key, operation_id=None):
@@ -193,7 +195,7 @@ def fee_claimed(payload, key, operation_id=None):
             return True
     return (any(claim["id"] == key and claim["operation_id"] != operation_id for claim in records(payload, "claim"))
             or any(key in claim_keys(fee["candidate"]) and fee["operation_id"] != operation_id
-                   for fee in records(payload, "fee")))
+                   for fee in records(payload, "fee") + records(payload, "image_comparison_fee")))
 
 
 def candidate_claimed(payload, candidate, operation_id=None):
@@ -241,9 +243,9 @@ def _validate(payload, previous, *, historical=False):
         timestamp(record["created_at"])
         if record["kind"] not in {"claim", "fee", "key"}:
             require(type(record["id"]) is str and ID_RE.fullmatch(record["id"]) is not None)
-        if record["kind"] in {"operation", "query"}:
+        if record["kind"] in {"operation", "query", "image_comparison_operation", "image_comparison_query"}:
             require(record["id"] not in payload["operations"])
-    capture_ids = [record["id"] for record in media.values() if record["kind"] in {"operation", "query"}]
+    capture_ids = [record["id"] for record in media.values() if record["kind"] in {"operation", "query", "image_comparison_operation", "image_comparison_query"}]
     require(len(capture_ids) == len(set(capture_ids)))
     scopes = sorted(records(payload, "scope"), key=lambda scope: scope["ordinal"])
     last_risk, last_calls, allocations = {}, {}, set()
@@ -300,6 +302,10 @@ def _validate(payload, previous, *, historical=False):
             continue
         scope = media["scope:" + record["scope_id"]]
         require(record["task_id"] == scope["task_id"])
+        if kind in COMPARISON_FIELDS:
+            from core.execution.image_comparison import validate_record
+            validate_record(payload, record)
+            continue
         if kind in {"code_continuation_quote", "code_continuation_activation"}:
             from core.execution.image_code_continuation import validate_record
             validate_record(payload, record)
@@ -478,6 +484,8 @@ def _validate(payload, previous, *, historical=False):
             if before is after or digest(before) == digest(after):
                 continue
             kind = before["kind"]
+            if kind in COMPARISON_FIELDS:
+                continue
             mutable = {"status", "capture_started_at", "raw", "receipt", "fee_id", "delivery_id"} if kind == "operation" else {"status", "capture_started_at", "raw", "receipt"} if kind == "query" else {"revoked_at"} if kind == "grant" else set()
             require(digest({k: v for k, v in before.items() if k not in mutable}) == digest({k: v for k, v in after.items() if k not in mutable}))
             for field in mutable - {"status"}:
@@ -550,6 +558,9 @@ def _validate(payload, previous, *, historical=False):
 def validate(payload, previous=None, *, historical=False):
     try:
         _validate(payload, previous, historical=historical)
+        if any(r["kind"] in COMPARISON_FIELDS for r in payload.get("media", {}).values()):
+            from core.execution.image_comparison import validate_transition
+            validate_transition(payload, previous)
         from core.execution.scope_budget import _validate_fee_owners
         _validate_fee_owners(payload)
         if any(record["kind"] in {"code_continuation_quote", "code_continuation_activation"}

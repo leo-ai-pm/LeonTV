@@ -328,7 +328,11 @@ def _checked(value):
             if serialized in proofs["inputs"]:
                 return value
         require(type(value) is dict and value.get("descriptor_hash") == digest({key: item for key, item in value.items() if key != "descriptor_hash"}))
-        if value.get("kind") == "controlled_image_observation_http_v1":
+        if value.get("kind") == "controlled_image_comparison_http_v1":
+            from core.execution.image_comparison_policy import rebuild
+
+            rebuilt = rebuild(value)
+        elif value.get("kind") == "controlled_image_observation_http_v1":
             from core.execution.image_observation_policy import rebuild
 
             rebuilt = rebuild(value)
@@ -370,6 +374,11 @@ class FrozenImageRequest:
         permit = value["permit"]
         proof_fields = {key: item for key, item in permit.items() if key.endswith("_hash")}
         continuation = {key: permit[key] for key in ("runtime_activation_id", "runtime_revision_sequence", "attempt_version", "replacement_of")} if value["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"} else {}
+        if value["kind"] == "controlled_image_comparison_http_v1":
+            continuation = {"comparison_activation_id": permit["comparison_activation_id"], "purpose": permit["purpose"]}
+            continuation.update(response_deadline_at=permit["response_deadline_at"],
+                response_window_seconds=value["comparison_authority"]["response_policy"]["response_window_seconds"],
+                response_contract_hash=permit["response_contract_hash"])
         if value["kind"] == "controlled_image_http_v3":
             continuation.update(response_deadline_at=permit["response_deadline_at"],
                 response_window_seconds=value["continuation_authority"]["response_policy"]["response_window_seconds"],

@@ -14,7 +14,7 @@ def _scopes(payload):
 
 
 def _extensions(payload, account_id):
-    if not any(record.get("kind") == "validity_continuation_intent"
+    if not any(record.get("kind") in {"validity_continuation_intent", "image_comparison_intent"}
                for record in payload.get("media", {}).values()):
         return []
     from core.execution.image_validity_continuation import retained_extensions
@@ -35,6 +35,8 @@ def _extensions(payload, account_id):
             "risk_units": units(intent["additional_risk_cny"]), "max_calls": intent["additional_paid_calls"],
             "account_limit_units": units(budget["proposed_retained_risk_cny"]),
             "account_max_calls": budget["proposed_max_calls"]})
+    from core.execution.image_comparison import retained_extensions as comparison_extensions
+    result.extend(comparison_extensions(payload, account_id))
     return result
 
 
@@ -72,7 +74,7 @@ def validate_shared_scopes(payload, previous=None):
         new = [(namespace, scope) for namespace, scope in current
                if "scope:" + scope["id"] not in previous.get(namespace, {})]
         new_extensions = [item for item in current_extensions
-                          if "validity_continuation_intent:" + item["intent"]["id"] not in previous.get("media", {})]
+                          if item["intent"]["kind"] + ":" + item["intent"]["id"] not in previous.get("media", {})]
         # A single transaction cannot reserve two apparently independent
         # allocations against the same opening balance.
         require(len(new) + len(new_extensions) <= 1)
@@ -96,6 +98,10 @@ def _paid_intents(payload):
         result.extend((namespace, record["id"], scope["account_id"])
                       for record in payload.get(namespace, {}).values()
                       if record["kind"] == "operation" and record["scope_id"] == scope["id"])
+    for record in payload.get("media", {}).values():
+        if record["kind"] == "image_comparison_operation":
+            scope = payload["media"]["scope:" + record["scope_id"]]
+            result.append(("image_comparison", record["id"], scope["account_id"]))
     return result
 
 
@@ -115,7 +121,7 @@ def _validate_fee_owners(payload):
             if record["kind"] == "claim":
                 owner = "text" if record.get("owner") == "text" else namespace
                 claim(record["id"], (owner, record["operation_id"]))
-            elif namespace == "media" and record["kind"] == "fee":
+            elif namespace == "media" and record["kind"] in {"fee", "image_comparison_fee"}:
                 from core.execution.task_image_fees import claim_keys
                 for key in claim_keys(record["candidate"]):
                     claim(key, (namespace, record["operation_id"]))
@@ -132,7 +138,12 @@ def _validate_paid_intents(payload, previous):
         if additions:
             require(not account_halted(previous, account_id) and not account_halted(payload, account_id))
             candidate = payload.get("media", {}).get("operation:" + additions[0][1]) if additions[0][0] == "media" else None
-            if candidate is not None and candidate["descriptor"]["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
+            if additions[0][0] == "image_comparison":
+                from core.execution.image_comparison import candidate_gate
+                diagnostic = payload["media"]["image_comparison_operation:" + additions[0][1]]
+                candidate_gate(previous, diagnostic["activation_id"])
+                candidate_gate(payload, diagnostic["activation_id"], exclude_id=diagnostic["id"])
+            elif candidate is not None and candidate["descriptor"]["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
                 from core.execution.media_continuation_gate import candidate_gate
                 candidate_gate(previous, candidate)
                 candidate_gate(payload, candidate, exclude_candidate=True)

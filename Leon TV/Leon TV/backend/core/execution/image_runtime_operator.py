@@ -1,6 +1,7 @@
 """Explicit exact-code runtime approvals; no implicit enablement or media call."""
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from core.creator.store import CreatorError
@@ -83,21 +84,29 @@ def _status(control, result=None, resource=None):
 
 def main(argv=None):
     parser = Parser(description="Review and record an exact image runtime revision; no media dispatch")
-    parser.add_argument("command", nargs="?", choices=("status", "quote", "activate"), default="status")
+    parser.add_argument("command", nargs="?", choices=("status", "quote", "activate", "comparison-quote", "comparison-prepare", "comparison-activate", "comparison-status"), default="status")
     parser.add_argument("--control")
     parser.add_argument("--valid-until")
     parser.add_argument("--response-window-seconds", type=int)
     parser.add_argument("--retain-unknown-risk", action="store_true")
+    parser.add_argument("--max-comparison-posts", type=int)
+    parser.add_argument("--intent")
+    parser.add_argument("--proposal-hash")
     parser.add_argument("--quote")
     parser.add_argument("--disclosure-hash")
     parser.add_argument("--consent", action="store_true")
+    comparison_command = any(v.startswith("comparison-") for v in (argv if argv is not None else sys.argv[1:]))
     try:
         args = parser.parse_args(argv)
-        extras = (args.valid_until, args.quote, args.disclosure_hash, args.consent, args.response_window_seconds is not None, args.retain_unknown_risk)
-        if not args.control:
+        extras = (args.max_comparison_posts is not None, args.intent, args.proposal_hash, args.valid_until, args.quote, args.disclosure_hash, args.consent, args.response_window_seconds is not None, args.retain_unknown_risk)
+        if comparison_command:
+            from core.execution.image_comparison import operator_review
+            value = operator_review(args, BACKEND)
+        elif not args.control:
             require(args.command == "status" and not any(extras))
             value = {"mode": "off", **_flags()}
         else:
+            require(args.max_comparison_posts is None and args.intent is None and args.proposal_hash is None)
             control = read_image_control(args.control, BACKEND)
             require(control.document.mode == "enabled")
             control.verify_authority(for_dispatch=False)
@@ -116,7 +125,7 @@ def main(argv=None):
         print(json.dumps(value, ensure_ascii=False, allow_nan=False))
         return 0
     except Exception:
-        print(json.dumps({"error": ERROR, **_flags()}))
+        print(json.dumps({"error": "IMAGE_COMPARISON_UNAVAILABLE" if comparison_command else ERROR, **_flags()}))
         return 1
 
 
