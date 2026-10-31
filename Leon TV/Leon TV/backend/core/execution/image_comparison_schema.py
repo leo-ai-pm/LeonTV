@@ -56,6 +56,8 @@ FIELDS = {
 
 def record_fields(record):
     fields = COMMON | FIELDS[record["kind"]]
+    if record["kind"] == OPERATION and "persistence_activation_id" in record:
+        fields = fields | {"persistence_activation_id"}
     if record["kind"] in {QUERY, FEE, ARTIFACT} and "observation_activation_id" in record:
         fields = fields | {"observation_activation_id"}
     if (

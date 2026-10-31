@@ -61,7 +61,7 @@ class ComparisonExecution:
         contract.candidate_gate(payload, self.activation_id, exclude_id=record["id"])
         return True
 
-    def reserve(self, *, key):
+    def reserve(self, *, key, persistence_activation_id=None):
         with (
             contract._lock(self.store, self.control.document.admission.task_id),
             self.store.transaction() as payload,
@@ -70,8 +70,13 @@ class ComparisonExecution:
             contract.require(digest(actual) == digest(payload))
             for op in contract.records(payload, contract.OPERATION):
                 if op["activation_id"] == self.activation_id:
-                    contract.require(op["idempotency_key"] == key)
+                    contract.require(op["idempotency_key"] == key and op.get("persistence_activation_id") == persistence_activation_id)
                     return {"operation": copy.deepcopy(op), "replayed": True}
+            if persistence_activation_id is not None:
+                from core.execution.media_persistence_contract import verified_current
+
+                actual, permission = verified_current(self.control, persistence_activation_id)
+                contract.require(digest(actual) == digest(payload) and permission["comparison_activation_id"] == self.activation_id)
             authority = contract.candidate_gate(payload, self.activation_id)
             source = payload["media"]["operation:" + q["proposal"]["case"]["source_operation_id"]][
                 "descriptor"
@@ -97,6 +102,8 @@ class ComparisonExecution:
                 "submission_index": authority["submission_index"],
                 "purpose": contract.PURPOSE,
             }
+            if persistence_activation_id is not None:
+                record["persistence_activation_id"] = persistence_activation_id
             contract._put(payload, record)
             return {"operation": record, "replayed": False}
 
@@ -185,17 +192,15 @@ class ComparisonExecution:
             op = payload["media"][kind + ":" + identifier]
             contract.require(op["activation_id"] == self.activation_id)
             if op["raw"] is not None or op["status"] == "reserved":
-                return {"operation" if not query else "query": copy.deepcopy(op), "replayed": True}
-            raw, inspection = self.capture.ready_raw(
-                FrozenImageRequest.from_frozen(op["descriptor"])
-            )
-            if raw is None:
-                return self._finish(kind, identifier, None)
-            if inspection["durable_confirmation_at"] is None or timestamp(
-                inspection["durable_confirmation_at"]
-            ) > response_deadline(FrozenImageRequest.from_frozen(op["descriptor"]).binding()):
-                return self._finish(kind, identifier, None)
-            return self._finish(kind, identifier, raw)
+                result = {"operation" if not query else "query": copy.deepcopy(op), "replayed": True}
+            else:
+                raw, inspection = self.capture.ready_raw(FrozenImageRequest.from_frozen(op["descriptor"]))
+                if raw is not None and (inspection["durable_confirmation_at"] is None or timestamp(
+                    inspection["durable_confirmation_at"]
+                ) > response_deadline(FrozenImageRequest.from_frozen(op["descriptor"]).binding())):
+                    raw = None
+                result = self._finish(kind, identifier, raw)
+        return self._receive_completed_result(result) if query else result
 
     def observe_fee(self, operation_id, export_bytes, *, observed_at):
         return self._observe_fee(operation_id, export_bytes, observed_at=observed_at)
@@ -324,7 +329,20 @@ class ComparisonExecution:
                     "query_index": len(existing) + 1,
                 }
                 contract._put(payload, record)
-        return self._dispatch(contract.QUERY, identifier)
+        return self._receive_completed_result(self._dispatch(contract.QUERY, identifier))
+
+    def _receive_completed_result(self, result):
+        query = result["query"]
+        if query["status"] != "completed":
+            return result
+        payload = self.store.read_only()
+        operation = payload["media"][contract.OPERATION + ":" + query["operation_id"]]
+        if "persistence_activation_id" not in operation:
+            return result
+        from core.execution.media_persistence import MediaPersistenceExecution
+
+        receive = MediaPersistenceExecution(self.control, operation["persistence_activation_id"])
+        return {**result, "media_persistence": receive.receive_completed(operation["id"], query["id"])}
 
     def record_artifact(self, operation_id, query_id, image_bytes):
         with (
@@ -344,6 +362,11 @@ class ComparisonExecution:
             artifact = verify_delivery(
                 FrozenImageRequest.from_frozen(query["descriptor"]), query["raw"], image_bytes
             )
+            if "persistence_activation_id" in op:
+                from core.execution.media_persistence import MediaPersistenceExecution
+
+                reception = MediaPersistenceExecution(self.control, op["persistence_activation_id"])
+                contract.require(reception.verified_saved_bytes(payload, op, query, artifact) == image_bytes)
             if op["artifact_id"] is not None:
                 old = payload["media"][contract.ARTIFACT + ":" + op["artifact_id"]]
                 contract.require(digest(old["artifact"]) == digest(artifact))

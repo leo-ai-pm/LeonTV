@@ -12,6 +12,7 @@ from core.execution.image_comparison_schema import OBS_FIELDS
 from core.execution.image_fees import candidate_for
 from core.execution.image_policy import FrozenImageRequest, ImageToolPolicy, MediaBudgetAnchor
 from core.execution.image_receipts import decode_query, decode_submit, verify_delivery
+from core.execution.media_persistence_schema import FIELDS as PERSISTENCE_FIELDS
 from core.execution.policy import money, units
 from core.execution.receipts import timestamp
 from core.execution.reference_derivation import (
@@ -46,6 +47,7 @@ FIELDS = {
 }
 FIELDS.update(COMPARISON_FIELDS)
 FIELDS.update(OBS_FIELDS)
+FIELDS.update(PERSISTENCE_FIELDS)
 COMMON = {"schema_version", "kind", "id", "scope_id", "task_id", "created_at"}
 STATES = {"reserved", "submitting", "unknown", "accepted", "rejected", "pending", "completed", "failed"}
 
@@ -326,6 +328,11 @@ def _validate(payload, previous, *, historical=False):
 
             validate_record(payload, record)
             continue
+        if kind in PERSISTENCE_FIELDS:
+            from core.execution.media_persistence_contract import validate_record
+
+            validate_record(payload, record)
+            continue
         if kind in {"code_continuation_quote", "code_continuation_activation"}:
             from core.execution.image_code_continuation import validate_record
             validate_record(payload, record)
@@ -504,7 +511,7 @@ def _validate(payload, previous, *, historical=False):
             if before is after or digest(before) == digest(after):
                 continue
             kind = before["kind"]
-            if kind in COMPARISON_FIELDS:
+            if kind in COMPARISON_FIELDS or kind in PERSISTENCE_FIELDS:
                 continue
             mutable = {"status", "capture_started_at", "raw", "receipt", "fee_id", "delivery_id"} if kind == "operation" else {"status", "capture_started_at", "raw", "receipt"} if kind == "query" else {"revoked_at"} if kind == "grant" else set()
             require(digest({k: v for k, v in before.items() if k not in mutable}) == digest({k: v for k, v in after.items() if k not in mutable}))
@@ -578,6 +585,10 @@ def _validate(payload, previous, *, historical=False):
 def validate(payload, previous=None, *, historical=False):
     try:
         _validate(payload, previous, historical=historical)
+        if any(r["kind"] in PERSISTENCE_FIELDS or "persistence_activation_id" in r for r in payload.get("media", {}).values()):
+            from core.execution.media_persistence_contract import validate_transition
+
+            validate_transition(payload, previous)
         if any(r["kind"] in COMPARISON_FIELDS for r in payload.get("media", {}).values()):
             from core.execution.image_comparison import validate_transition
             validate_transition(payload, previous)

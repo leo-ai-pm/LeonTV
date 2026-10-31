@@ -87,9 +87,11 @@ def sealed(value, key):
 
 
 def original_view(payload):
+    from core.execution.media_persistence_schema import KINDS as PERSISTENCE_KINDS
+
     return {
         **payload,
-        "media": {k: v for k, v in payload["media"].items() if v["kind"] not in KINDS | OBS_KINDS},
+        "media": {k: v for k, v in payload["media"].items() if v["kind"] not in KINDS | OBS_KINDS | PERSISTENCE_KINDS},
     }
 
 
@@ -1042,6 +1044,11 @@ def validate_transition(payload, previous=None):
             require(old[OPERATION + ":" + r["operation_id"]]["raw"] is not None)
         elif kind == ARTIFACT:
             require(old[QUERY + ":" + r["query_id"]]["status"] == "completed")
+            operation = old[OPERATION + ":" + r["operation_id"]]
+            if "persistence_activation_id" in operation:
+                from core.execution.media_persistence_contract import saved_for_artifact
+
+                saved_for_artifact(previous, operation, old[QUERY + ":" + r["query_id"]], r["artifact"])
         if kind in {FEE, ARTIFACT} and "observation_activation_id" in r:
             from core.execution.image_comparison_observation import validate_action_birth
 

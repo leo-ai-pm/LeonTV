@@ -176,6 +176,10 @@ def _validate_state(state):
         from core.execution.image_comparison_observation import validate_history
 
         validate_history(state, payload)
+    if any(record["kind"].startswith("media_persistence_") for record in payload.get("media", {}).values()):
+        from core.execution.media_persistence_contract import validate_history
+
+        validate_history(state, payload)
     return payload
 
 
@@ -185,6 +189,11 @@ class ExecutionStore(CreatorBriefStore):
         from core.execution.receipts import read_json
 
         path = self.path("state.json")
+        from core.execution.media_persistence_snapshot import read_snapshot
+
+        committed = read_snapshot(path, MAX_STATE_BYTES)
+        if committed is not None:
+            return committed
         if not path.exists():
             return copy.deepcopy(EMPTY)
         try:
@@ -201,13 +210,19 @@ class ExecutionStore(CreatorBriefStore):
             try:
                 path = self.path("state.json")
                 try:
-                    state = parse_json(path.read_text(encoding="utf-8")) if path.exists() else {"schema_version": 2, "head_revision": 0, "head_hash": None, "frames": []}
+                    from core.execution.media_persistence_snapshot import read_committed_bytes
+
+                    raw, identity = read_committed_bytes(path, MAX_STATE_BYTES) if path.exists() else (None, None)
+                    state = parse_json(raw.decode("utf-8")) if raw is not None else {"schema_version": 2, "head_revision": 0, "head_hash": None, "frames": []}
                     payload = validate_state(state)
                 except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, RecursionError):
                     raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
                 original = copy.deepcopy(payload)
                 original_digest = digest(original) if has_roles(original) or "media" in original or "asset_design" in original else None
-                yield payload
+                from core.execution.media_persistence_snapshot import committed_snapshot
+
+                with committed_snapshot(path, raw, original, identity):
+                    yield payload
                 try:
                     profiled = has_roles(payload) or has_roles(original) or "media" in payload or "media" in original or "asset_design" in payload or "asset_design" in original
                     if profiled:
