@@ -124,7 +124,7 @@ def build_image_session(control, *, receipt_capture=None, credential_loader=None
             control.document.admission.asset_operation_id, policy=control.document.policy,
             budget_anchor=control.document.budget_anchor, authority_guard=control.guard,
             fee_source=control.document.fee_source.model_dump(), reference_profile=control.document.reference_profile,
-            receipt_capture=receipt_capture, **continuation)
+            receipt_capture=receipt_capture, image_control=control, **continuation)
         expected = control.verified_asset()
         require(digest(media.manifest) == digest(expected["manifest"]) and digest(media.manifest_origin) == digest(expected["origin"]))
         media.capture = _BoundImageCapture(control, media, media.capture, credential_loader or tudou_credential)

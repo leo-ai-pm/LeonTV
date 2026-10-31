@@ -6,6 +6,7 @@ import { BriefPlannerController, plannerGate } from '@/lib/briefPlannerControlle
 import type { CreatorBriefController } from '@/lib/creatorBriefController';
 import type { PlannerScenario, PlannerStatus } from '@/lib/briefPlannerTypes';
 import PlannerExecutionPanel from './PlannerExecutionPanel';
+import PlannerMediaPanel from './PlannerMediaPanel';
 import PlannerCollaborationPanel from './PlannerCollaborationPanel';
 import PlannerRevisionCyclePanel from './PlannerRevisionCyclePanel';
 
@@ -89,6 +90,7 @@ export default function BriefPlannerPanel({ briefController }: { briefController
           {task.pending_call && <p className="creator-muted">{task.pending_call.status === 'intent' ? '调用意图已保存；回执尚未确认，不能自动重调。' : '已收到持久回执，恢复时复用已确认结果。'}</p>}
           <details className="creator-conflict-details"><summary>查看冻结来源与核验引用</summary><p>任务：<code>{task.id}</code> · 状态版本 v{task.revision}<br />快照摘要：<code>{task.source.snapshot_hash}</code></p><button type="button" className="creator-secondary" disabled={state.sourceLoading} onClick={() => void controller.loadSource()}>{state.sourceLoading ? '正在读取冻结正文…' : '按任务 ID 读取冻结正文'}</button>{state.source && <div><label className="creator-label" htmlFor="planner-frozen-script">任务冻结剧本（只读）</label><textarea id="planner-frozen-script" className="creator-field" readOnly rows={7} value={state.source.script} /><h4>冻结制作要求</h4><p className="creator-planner-preserve">{state.source.requirements || '未填写'}</p></div>}</details>
           {task.mode === 'normal' ? <PlannerExecutionPanel task={task} /> : <section className="creator-planner-plan" aria-label="结构化镜头计划"><h3>测试镜头计划</h3>{!task.plan ? <p className="creator-muted">暂无结构合格的镜头计划。</p> : <><p className="creator-muted">计划 v{task.plan_version} · 15秒 · 9:16。结构校验合格，剧本语义与成片质量均未验收。</p><ol className="creator-planner-shots">{task.plan.shots.map(shot => <li key={shot.id}><header><strong>{shot.id}</strong><span>{shot.duration_ms / 1000} 秒</span></header><dl><dt>画面</dt><dd>{shot.visual}</dd><dt>运镜</dt><dd>{shot.camera || '未指定'}</dd><dt>声音</dt><dd>{shot.audio || '未指定'}</dd><dt>依赖</dt><dd>{shot.depends_on.join('、') || '无'}</dd></dl></li>)}</ol></>}</section>}
+          {task.mode === 'normal' && <PlannerMediaPanel task={task} />}
           {task.collaboration && <PlannerCollaborationPanel task={task} />}
           {task.revision_cycle && <PlannerRevisionCyclePanel task={task} />}
           {task.mode === 'normal' && <details className="creator-conflict-details"><summary>高级 · 原来源记录控制（不执行模型）</summary><p>D08来源记录：{statusLabel[task.status]}。这里的动作不启动D09执行，也不改变冻结简报；更改来源记录版本后需重新核对报价引用。</p><div className="creator-action-row">{task.allowed_actions.map(action => <button type="button" key={action} className="creator-secondary" disabled={state.busy || Boolean(pending) || state.storageBlocked || state.refreshing} onClick={() => void controller.action(action)}>{action === 'stop' ? '暂停原来源记录' : '原来源记录恢复至待授权'}</button>)}</div></details>}

@@ -46,7 +46,7 @@ from core.planner.review import json_copy
 
 
 class MediaExecution:
-    def __init__(self, runtime, *, policy=None, budget_anchor=None, manifest=None, authority_guard=None, fee_source=None, receipt_capture=None, reference_profile=None, manifest_origin=None, continuation_activation_id=None, continuation_guard=None, continuation_control=None):
+    def __init__(self, runtime, *, policy=None, budget_anchor=None, manifest=None, authority_guard=None, fee_source=None, receipt_capture=None, reference_profile=None, manifest_origin=None, continuation_activation_id=None, continuation_guard=None, continuation_control=None, image_control=None):
         self.runtime, self.store = runtime, runtime.store
         self.policy = policy.frozen() if isinstance(policy, ImageToolPolicy) else copy.deepcopy(policy)
         self.anchor = budget_anchor.frozen() if isinstance(budget_anchor, MediaBudgetAnchor) else copy.deepcopy(budget_anchor)
@@ -57,6 +57,7 @@ class MediaExecution:
         self.continuation_activation_id = continuation_activation_id
         self.continuation_guard = continuation_guard
         self.continuation_control = continuation_control
+        self.image_control = image_control
         if continuation_control is not None:
             self._bound_continuation_control()
         self.fee_source = FrozenFeeSource.model_validate(fee_source).model_dump() if fee_source is not None else None
@@ -77,7 +78,9 @@ class MediaExecution:
         payload = self.store.read_only()
         if task_id not in payload["tasks"]:
             raise CreatorError("NOT_FOUND", "Execution record not found", 404)
-        return {"media": projection(payload, task_id)}
+        from core.execution.production_image_status import production_images
+
+        return {"media": projection(payload, task_id), "production_images": production_images(self.store, payload, task_id)}
 
     @staticmethod
     def _record(kind, record_id, task_id, scope_id, **fields):
@@ -271,14 +274,22 @@ class MediaExecution:
             "risk_cny": scope["policy"]["per_submission_risk_cny"] if action == "submit" else "0.000000",
             "issued_at": issued.isoformat(), "deadline_at": deadline.isoformat()}
 
-    def reserve_submit(self, task_id, grant_id, shot_id, *, references=(), key):
+    def reserve_submit(self, task_id, grant_id, shot_id, *, references=(), key, persistence_activation_id=None):
         request = {"task_id": task_id, "grant_id": grant_id, "shot_id": shot_id, "references": [] if references == () else references}
         if self.continuation_activation_id is not None:
             request["runtime_activation_id"] = self.continuation_activation_id
+        if persistence_activation_id is not None:
+            request["production_persistence_activation_id"] = persistence_activation_id
         with self._lock(task_id), self.store.transaction() as payload:
             old = self._replay(payload, "submit", key, request)
             if old:
                 return {"operation": copy.deepcopy(old), "replayed": True}
+            if persistence_activation_id is not None:
+                from core.execution.production_image_persistence_contract import verified_current
+
+                actual, persistence = verified_current(self, persistence_activation_id)
+                require(digest(actual) == digest(payload) and persistence["grant_id"] == grant_id
+                        and persistence["shot_id"] == shot_id, "MEDIA_AUTHORITY_REJECTED")
             grant = payload.get("media", {}).get("grant:" + grant_id)
             require(grant is not None and grant["task_id"] == task_id and grant["revoked_at"] is None, "MEDIA_GRANT_REQUIRED")
             scope = payload["media"]["scope:" + grant["scope_id"]]
@@ -331,6 +342,8 @@ class MediaExecution:
             operation = self._record("operation", operation_id, task_id, scope["id"], descriptor=descriptor.frozen(),
                 grant_id=grant_id, quote_id=grant["quote_id"], shot_id=shot_id, submission_index=len(prior) + 1,
                 status="reserved", capture_started_at=None, raw=None, receipt=None, fee_id=None, delivery_id=None)
+            if persistence_activation_id is not None:
+                operation["production_persistence_activation_id"] = persistence_activation_id
             if "reference_profile" in scope:
                 operation.update(reference_profile_hash=scope["reference_profile"]["profile_hash"],
                     reference_derivations=[{"id": proof["derivation_id"], "derivation_hash": proof["derivation_hash"]} for proof in proofs])
@@ -491,7 +504,8 @@ class MediaExecution:
                     query = self._put(payload, self._record("query", query_id, task_id, scope["id"], operation_id=operation_id,
                         descriptor=descriptor.frozen(), query_index=count + 1, status="reserved", capture_started_at=None, raw=None, receipt=None))
                     self._remember(payload, "query", key, request, query)
-            return self._run(task_id, "query:" + query_id)
+            result = self._run(task_id, "query:" + query_id)
+        return self._receive_completed_result(result)
 
     def recover(self, task_id, operation_id):
         from core.execution.image_policy import FrozenImageRequest
@@ -501,16 +515,32 @@ class MediaExecution:
             require(selected is not None and payload["media"][selected]["task_id"] == task_id, "NOT_FOUND")
             record = payload["media"][selected]
             if record["raw"] is not None or record["capture_started_at"] is None:
-                return {record["kind"]: copy.deepcopy(record), "replayed": True}
-            raw, _ = self.capture.ready_raw(FrozenImageRequest.from_frozen(record["descriptor"]))
-            with self.store.transaction() as current:
-                record = current["media"][selected]
-                before = digest(record)
-                if raw is None:
-                    record["status"] = "unknown"
-                else:
-                    self._adopt(record, raw)
-                return {record["kind"]: copy.deepcopy(record), "replayed": digest(record) == before}
+                result = {record["kind"]: copy.deepcopy(record), "replayed": True}
+            else:
+                raw, _ = self.capture.ready_raw(FrozenImageRequest.from_frozen(record["descriptor"]))
+                with self.store.transaction() as current:
+                    record = current["media"][selected]
+                    before = digest(record)
+                    if raw is None:
+                        record["status"] = "unknown"
+                    else:
+                        self._adopt(record, raw)
+                    result = {record["kind"]: copy.deepcopy(record), "replayed": digest(record) == before}
+        return self._receive_completed_result(result) if "query" in result else result
+
+    def _receive_completed_result(self, result):
+        query = result.get("query")
+        if query is None or query["status"] != "completed":
+            return result
+        payload = self.store.read_only()
+        operation = payload["media"]["operation:" + query["operation_id"]]
+        activation_id = operation.get("production_persistence_activation_id")
+        if activation_id is None:
+            return result
+        from core.execution.production_image_persistence import ProductionImagePersistenceExecution
+
+        receiver = ProductionImagePersistenceExecution(self, activation_id)
+        return {**result, "image_persistence": receiver.receive_completed(operation["id"], query["id"])}
 
     def observe_fee(self, task_id, operation_id, export_bytes, *, observed_at):
         from core.execution.image_policy import FrozenImageRequest
@@ -565,6 +595,13 @@ class MediaExecution:
             query = payload["media"]["query:" + query_id]
             require(operation["task_id"] == task_id and query["task_id"] == task_id and query["operation_id"] == operation_id, "NOT_FOUND")
             delivery = verify_delivery(FrozenImageRequest.from_frozen(query["descriptor"]), query["raw"], image_bytes)
+            if "production_persistence_activation_id" in operation:
+                from core.execution.production_image_persistence import (
+                    ProductionImagePersistenceExecution,
+                )
+
+                receiver = ProductionImagePersistenceExecution(self, operation["production_persistence_activation_id"])
+                require(receiver.verified_saved_bytes(payload, operation, query, delivery) == image_bytes, "MEDIA_DELIVERY_CONFLICT")
             if operation["delivery_id"] is not None:
                 require(digest(payload["media"]["delivery:" + operation["delivery_id"]]["delivery"]) == digest(delivery), "MEDIA_DELIVERY_CONFLICT")
                 return {"delivery_hash": delivery["delivery_hash"], "replayed": True}

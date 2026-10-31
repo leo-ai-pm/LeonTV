@@ -14,6 +14,10 @@ from core.execution.image_policy import FrozenImageRequest, ImageToolPolicy, Med
 from core.execution.image_receipts import decode_query, decode_submit, verify_delivery
 from core.execution.media_persistence_schema import FIELDS as PERSISTENCE_FIELDS
 from core.execution.policy import money, units
+from core.execution.production_image_persistence_schema import (
+    FIELDS as PRODUCTION_PERSISTENCE_FIELDS,
+)
+from core.execution.production_image_persistence_schema import OPERATION_FIELD
 from core.execution.receipts import timestamp
 from core.execution.reference_derivation import (
     checked_profile,
@@ -48,6 +52,7 @@ FIELDS = {
 FIELDS.update(COMPARISON_FIELDS)
 FIELDS.update(OBS_FIELDS)
 FIELDS.update(PERSISTENCE_FIELDS)
+FIELDS.update(PRODUCTION_PERSISTENCE_FIELDS)
 COMMON = {"schema_version", "kind", "id", "scope_id", "task_id", "created_at"}
 STATES = {"reserved", "submitting", "unknown", "accepted", "rejected", "pending", "completed", "failed"}
 
@@ -160,6 +165,8 @@ def _record_fields(record, media):
         fields = fields | {"manifest_origin"}
     if record["kind"] == "operation" and "reference_profile" in media.get("scope:" + str(record.get("scope_id")), {}):
         fields = fields | {"reference_profile_hash", "reference_derivations"}
+    if record["kind"] == "operation" and OPERATION_FIELD in record:
+        fields = fields | {OPERATION_FIELD}
     if record["kind"] in {"fee", "image_comparison_fee"} and record.get("candidate", {}).get("kind") == "image_task_fee_candidate_v1":
         fields = fields | {"task_fee_source", "account_export_base64"}
     return fields
@@ -333,6 +340,11 @@ def _validate(payload, previous, *, historical=False):
 
             validate_record(payload, record)
             continue
+        if kind in PRODUCTION_PERSISTENCE_FIELDS:
+            from core.execution.production_image_persistence_contract import validate_record
+
+            validate_record(payload, record)
+            continue
         if kind in {"code_continuation_quote", "code_continuation_activation"}:
             from core.execution.image_code_continuation import validate_record
             validate_record(payload, record)
@@ -470,6 +482,8 @@ def _validate(payload, previous, *, historical=False):
                 require(type(request.get("consent")) is bool)
             elif verb == "submit":
                 expected.update(grant_id=target["grant_id"], shot_id=target["shot_id"], references=request.get("references"))
+                if OPERATION_FIELD in target:
+                    expected[OPERATION_FIELD] = target[OPERATION_FIELD]
                 require(type(request.get("references")) is list)
                 require(request["references"] == [] or digest(request["references"]) == digest(target["descriptor"]["references"]))
             elif verb == "query":
@@ -511,7 +525,7 @@ def _validate(payload, previous, *, historical=False):
             if before is after or digest(before) == digest(after):
                 continue
             kind = before["kind"]
-            if kind in COMPARISON_FIELDS or kind in PERSISTENCE_FIELDS:
+            if kind in COMPARISON_FIELDS or kind in PERSISTENCE_FIELDS or kind in PRODUCTION_PERSISTENCE_FIELDS:
                 continue
             mutable = {"status", "capture_started_at", "raw", "receipt", "fee_id", "delivery_id"} if kind == "operation" else {"status", "capture_started_at", "raw", "receipt"} if kind == "query" else {"revoked_at"} if kind == "grant" else set()
             require(digest({k: v for k, v in before.items() if k not in mutable}) == digest({k: v for k, v in after.items() if k not in mutable}))
@@ -561,6 +575,13 @@ def _validate(payload, previous, *, historical=False):
                 require(old["operation:" + record["operation_id"]]["raw"] is not None)
             elif kind == "delivery":
                 require(old["query:" + record["query_id"]]["raw"] is not None)
+                operation = old["operation:" + record["operation_id"]]
+                if OPERATION_FIELD in operation:
+                    from core.execution.production_image_persistence_contract import (
+                        saved_for_delivery,
+                    )
+
+                    saved_for_delivery(previous, operation, old["query:" + record["query_id"]], record["delivery"])
             elif kind == "reference_derivation":
                 require("operation:" + record["operation_id"] not in old)
                 require(any(new["kind"] == "operation" and new["id"] == record["operation_id"] for new in new_records))
@@ -585,6 +606,10 @@ def _validate(payload, previous, *, historical=False):
 def validate(payload, previous=None, *, historical=False):
     try:
         _validate(payload, previous, historical=historical)
+        if any(r["kind"] in PRODUCTION_PERSISTENCE_FIELDS or OPERATION_FIELD in r for r in payload.get("media", {}).values()):
+            from core.execution.production_image_persistence_contract import validate_transition
+
+            validate_transition(payload, previous)
         if any(r["kind"] in PERSISTENCE_FIELDS or "persistence_activation_id" in r for r in payload.get("media", {}).values()):
             from core.execution.media_persistence_contract import validate_transition
 

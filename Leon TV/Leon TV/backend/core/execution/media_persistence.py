@@ -21,47 +21,66 @@ from core.planner.protocol import parse_json
 
 
 def intent_hash(record):
-    return digest({k: v for k, v in record.items() if k not in {"status", "error", "http_status", "saved", "artifact_id"}})
+    return digest({k: v for k, v in record.items() if k not in {"status", "error", "http_status", "saved", "artifact_id", "delivery_id"}})
 
 
 class MediaPersistenceExecution:
+    # Trusted adapters override these fixed native selectors, never callbacks
+    # supplied by a request. The default is exactly the D47 diagnostic profile.
+    contract = contract
+    receive_kind = RECEIVE
+    operation_activation_field = "persistence_activation_id"
+    registration_field = "artifact_id"
+
+    def _current(self):
+        return self.contract.verified_current(self.control, self.activation_id)
+
+    def _lock(self):
+        return base._lock(self.store, self.control.document.admission.task_id)
+
+    def _register(self, operation, query, image):
+        from core.execution.image_comparison_runtime import ComparisonExecution
+
+        result = ComparisonExecution(self.control, operation["activation_id"]).record_artifact(operation["id"], query["id"], image)
+        return result["artifact"]["id"]
+
     def __init__(self, control, persistence_activation_id):
-        contract.require(type(control) is LoadedImageControl)
+        self.contract.require(type(control) is LoadedImageControl)
         self.control, self.activation_id = control, persistence_activation_id
         self.store = ExecutionStore(control.roots["execution"])
 
     def _bound(self, payload, operation_id, query_id):
-        op, query, receipt = contract.completed(payload, operation_id, query_id)
-        contract.require(op["persistence_activation_id"] == self.activation_id)
+        op, query, receipt = self.contract.completed(payload, operation_id, query_id)
+        self.contract.require(op[self.operation_activation_field] == self.activation_id)
         return op, query, receipt
 
     def _save_state(self, identifier, **values):
         with self.store.transaction() as payload:
-            actual, _ = contract.verified_current(self.control, self.activation_id)
-            contract.require(digest(actual) == digest(payload))
-            record = payload["media"][RECEIVE + ":" + identifier]
+            actual, _ = self._current()
+            self.contract.require(digest(actual) == digest(payload))
+            record = payload["media"][self.receive_kind + ":" + identifier]
             record.update(values)
             return copy.deepcopy(record)
 
     def _proof(self, files, record, query):
         proof_raw = files.read(".ready.json", 16384)
         value = parse_json(proof_raw.decode("utf-8"))
-        contract.require(type(value) is dict and set(value) == {"intent_hash", "query_hash", "receipt_hash", "saved"}
+        self.contract.require(type(value) is dict and set(value) == {"intent_hash", "query_hash", "receipt_hash", "saved"}
                          and value["intent_hash"] == intent_hash(record) and value["query_hash"] == record["query_hash"]
                          and value["receipt_hash"] == record["receipt_hash"])
         saved = value["saved"]
         confirmation = parse_json(files.read(".commit.json", 2048).decode("utf-8"))
-        contract.require(type(confirmation) is dict and set(confirmation) == {"intent_hash", "proof_sha256", "confirmed_at", "confirmation_hash"}
+        self.contract.require(type(confirmation) is dict and set(confirmation) == {"intent_hash", "proof_sha256", "confirmed_at", "confirmation_hash"}
                          and confirmation["confirmation_hash"] == digest({k: v for k, v in confirmation.items() if k != "confirmation_hash"})
                          and confirmation["intent_hash"] == intent_hash(record) and confirmation["proof_sha256"] == hashlib.sha256(proof_raw).hexdigest())
-        contract.require(type(saved) is dict and set(saved) == contract.SAVED - {"durable_at"})
+        self.contract.require(type(saved) is dict and set(saved) == self.contract.SAVED - {"durable_at"})
         saved = {**saved, "durable_at": confirmation["confirmed_at"]}
-        contract.require(timestamp(record["created_at"]) <= timestamp(saved["network_started_at"]) <= timestamp(saved["saved_at"]) <= timestamp(record["deadline_at"])
+        self.contract.require(timestamp(record["created_at"]) <= timestamp(saved["network_started_at"]) <= timestamp(saved["saved_at"]) <= timestamp(record["deadline_at"])
                          and timestamp(saved["saved_at"]) <= timestamp(saved["durable_at"]) <= timestamp(record["deadline_at"]) - timedelta(seconds=POLICY["cleanup_seconds"])
                          and (timestamp(saved["durable_at"]) - timestamp(saved["network_started_at"])).total_seconds() <= POLICY["absolute_timeout_seconds"])
         image, suffix = files.read_payload(POLICY["max_bytes"])
         artifact = verify_delivery(FrozenImageRequest.from_frozen(query["descriptor"]), query["raw"], image)
-        contract.require(saved["sha256"] == hashlib.sha256(image).hexdigest() and saved["byte_length"] == len(image)
+        self.contract.require(saved["sha256"] == hashlib.sha256(image).hexdigest() and saved["byte_length"] == len(image)
                          and digest(saved["artifact"]) == digest(artifact))
         return saved, image, suffix
 
@@ -71,10 +90,10 @@ class MediaPersistenceExecution:
         try:
             # A new complete freshness boundary after intent commit, immediately
             # before process launch. It cannot reuse a transaction's old proof.
-            payload, _ = contract.verified_current(self.control, self.activation_id)
+            payload, _ = self._current()
             _, current, current_receipt = self._bound(payload, record["operation_id"], record["query_id"])
-            actual = payload["media"][RECEIVE + ":" + identifier]
-            contract.require(digest(actual) == digest(record) and digest(current) == digest(query)
+            actual = payload["media"][self.receive_kind + ":" + identifier]
+            self.contract.require(digest(actual) == digest(record) and digest(current) == digest(query)
                              and digest(receipt) == digest(current_receipt)
                              and now() + timedelta(seconds=POLICY["absolute_timeout_seconds"] + POLICY["cleanup_seconds"]) < timestamp(record["deadline_at"]))
             target(receipt["result_url"])
@@ -96,7 +115,7 @@ class MediaPersistenceExecution:
                                             error=error,
                                             http_status=result.get("http_status"))
                 saved, _, _ = self._proof(files, record, query)
-                contract.verified_current(self.control, self.activation_id)
+                self._current()
                 files.publish()
             return self._save_state(identifier, status="saved", saved=saved, error=None, http_status=200)
         except Exception as exc:
@@ -114,7 +133,7 @@ class MediaPersistenceExecution:
             # already exists; do not publish or create proof files on this path.
             payload = self.store.read_only()
             self._bound(payload, operation_id, query_id)
-            found = [r for r in base.records(payload, RECEIVE) if r["operation_id"] == operation_id]
+            found = [r for r in base.records(payload, self.receive_kind) if r["operation_id"] == operation_id]
             if found:
                 result = self._summary(found[0], received=None, replayed=True)
             else:
@@ -127,35 +146,35 @@ class MediaPersistenceExecution:
 
     def verified_saved_bytes(self, payload, operation, query, artifact):
         """Read-only proof gate used by the original artifact writer too."""
-        record = contract.saved_for_artifact(payload, operation, query, artifact)
-        contract.verified_current(self.control, self.activation_id)
+        record = self.contract.saved_for_artifact(payload, operation, query, artifact)
+        self._current()
         with PrivateMediaFiles(self.store.root, record["id"]) as files:
             saved, image, suffix = self._proof(files, record, query)
-        contract.require(suffix == ".blob" and digest(saved) == digest(record["saved"]))
+        self.contract.require(suffix == ".blob" and digest(saved) == digest(record["saved"]))
         return image
 
     def _receive_completed(self, operation_id, query_id):
-        with base._lock(self.store, self.control.document.admission.task_id):
+        with self._lock():
             with self.store.transaction() as current:
                 # One committed decision snapshot under the original task/store
                 # locks. No preliminary full reads, mutable-payload permission,
                 # or reuse across the later worker/publication boundaries.
-                actual, d = contract.verified_current(self.control, self.activation_id)
-                contract.require(digest(actual) == digest(current))
+                actual, d = self._current()
+                self.contract.require(digest(actual) == digest(current))
                 op, query, receipt = self._bound(current, operation_id, query_id)
-                found = [r for r in base.records(current, RECEIVE) if r["operation_id"] == operation_id]
+                found = [r for r in base.records(current, self.receive_kind) if r["operation_id"] == operation_id]
                 replayed = bool(found)
                 if not found:
-                    contract.require(now() + timedelta(seconds=120) < timestamp(d["valid_until"]))
-                    record = {"schema_version": 1, "kind": RECEIVE, "id": uuid.uuid4().hex,
+                    self.contract.require(now() + timedelta(seconds=120) < timestamp(d["valid_until"]))
+                    record = {"schema_version": 1, "kind": self.receive_kind, "id": uuid.uuid4().hex,
                               "scope_id": op["scope_id"], "task_id": op["task_id"], "created_at": utc_now(),
                               "persistence_activation_id": self.activation_id, "operation_id": operation_id,
                               "query_id": query_id, "query_hash": digest(query), "receipt_hash": receipt["receipt_hash"],
                               "url_sha256": receipt["result_url_sha256"], "deadline_at": d["valid_until"],
-                              "status": "receiving", "error": None, "http_status": None, "saved": None, "artifact_id": None}
+                              "status": "receiving", "error": None, "http_status": None, "saved": None, self.registration_field: None}
                     base._put(current, record)
                 else:
-                    contract.require(len(found) == 1 and found[0]["query_id"] == query_id
+                    self.contract.require(len(found) == 1 and found[0]["query_id"] == query_id
                                      and found[0]["persistence_activation_id"] == self.activation_id)
                     record = copy.deepcopy(found[0])
             if not replayed:
@@ -165,10 +184,10 @@ class MediaPersistenceExecution:
                     with PrivateMediaFiles(self.store.root, record["id"]) as files:
                         saved, image, suffix = self._proof(files, record, query)
                         if suffix == ".part":
-                            contract.verified_current(self.control, self.activation_id)
+                            self._current()
                             files.publish()
                         elif files.exists(".part"):
-                            contract.verified_current(self.control, self.activation_id)
+                            self._current()
                             files.finish_link()
                     if record["saved"] is None:
                         record = self._save_state(record["id"], status="saved", saved=saved, error=None, http_status=200)
@@ -181,12 +200,10 @@ class MediaPersistenceExecution:
         # The existing artifact method owns the task lock independently. No
         # nested lock, and a concurrent registrar can only replay exact bytes.
         try:
-            contract.verified_current(self.control, self.activation_id)
-            from core.execution.image_comparison_runtime import ComparisonExecution
-
-            result = ComparisonExecution(self.control, op["activation_id"]).record_artifact(operation_id, query_id, image)
-            with base._lock(self.store, self.control.document.admission.task_id):
-                record = self._save_state(record["id"], artifact_id=result["artifact"]["id"])
+            self._current()
+            registration_id = self._register(op, query, image)
+            with self._lock():
+                record = self._save_state(record["id"], **{self.registration_field: registration_id})
         except Exception:
             # A registration error may itself mean that the file disappeared
             # or changed. Recheck evidence without creating/unlinking anything;
@@ -208,7 +225,7 @@ class MediaPersistenceExecution:
             operation = payload["media"][base.OPERATION + ":" + record["operation_id"]]
             if operation["artifact_id"] is not None:
                 artifact = payload["media"][base.ARTIFACT + ":" + operation["artifact_id"]]
-                contract.require(artifact["operation_id"] == record["operation_id"] and artifact["query_id"] == record["query_id"]
+                self.contract.require(artifact["operation_id"] == record["operation_id"] and artifact["query_id"] == record["query_id"]
                                  and digest(artifact["artifact"]) == digest(record["saved"]["artifact"]))
                 artifact_id = artifact["id"]
         pointer_pending = artifact_id is not None and record["artifact_id"] is None

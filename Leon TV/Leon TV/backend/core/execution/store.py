@@ -180,6 +180,10 @@ def _validate_state(state):
         from core.execution.media_persistence_contract import validate_history
 
         validate_history(state, payload)
+    if any(record["kind"].startswith("production_image_persistence_") for record in payload.get("media", {}).values()):
+        from core.execution.production_image_persistence_contract import validate_history
+
+        validate_history(state, payload)
     return payload
 
 
