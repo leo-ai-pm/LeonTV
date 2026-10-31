@@ -4,7 +4,7 @@ from datetime import datetime
 from core.creator.store import CreatorError, digest
 
 IMAGE_KIND = "controlled_image_http_v3"
-RESPONSE_KINDS = frozenset({IMAGE_KIND, "controlled_image_comparison_http_v1"})
+RESPONSE_KINDS = frozenset({IMAGE_KIND, "controlled_image_comparison_http_v1", "controlled_image_comparison_observation_http_v1"})
 RESPONSE_KIND = "image_response_observation_v1"
 RESPONSE_FIELDS = frozenset({"response_deadline_at", "response_window_seconds", "response_contract_hash"})
 

@@ -15,7 +15,7 @@ from core.execution.receipts import ReceiptCaptureSettings, ReceiptStore, timest
 from core.planner.review import json_copy
 
 KIND = "controlled_image_http_v1"
-KINDS = {KIND, "controlled_image_http_v2", "controlled_image_comparison_http_v1", IMAGE_KIND, "controlled_image_observation_http_v1"}
+KINDS = {KIND, "controlled_image_http_v2", "controlled_image_comparison_http_v1", IMAGE_KIND, "controlled_image_observation_http_v1", "controlled_image_comparison_observation_http_v1"}
 
 
 def rejected():

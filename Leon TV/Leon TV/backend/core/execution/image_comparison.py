@@ -26,6 +26,7 @@ from core.execution.image_comparison_schema import (
     FIELDS,
     INTENT,
     KINDS,
+    OBS_KINDS,
     OPERATION,
     QUERY,
     QUOTE,
@@ -88,7 +89,7 @@ def sealed(value, key):
 def original_view(payload):
     return {
         **payload,
-        "media": {k: v for k, v in payload["media"].items() if v["kind"] not in KINDS},
+        "media": {k: v for k, v in payload["media"].items() if v["kind"] not in KINDS | OBS_KINDS},
     }
 
 
@@ -710,6 +711,11 @@ def validate_record(payload, record):
     scope = payload["media"]["scope:" + record["scope_id"]]
     require(record["task_id"] == scope["task_id"])
     timestamp(record["created_at"])
+    if kind == QUERY and "observation_activation_id" in record:
+        from core.execution.image_comparison_observation import validate_query_record
+
+        validate_query_record(payload, record)
+        return
     if kind == QUOTE:
         p = record["proposal"]
         require(
@@ -925,6 +931,10 @@ def validate_record(payload, record):
             )
             == digest(record["artifact"])
         )
+    if kind in {FEE, ARTIFACT} and "observation_activation_id" in record:
+        from core.execution.image_comparison_observation import validate_action_binding
+
+        validate_action_binding(payload, record)
     if kind in {QUOTE, INTENT, ACTIVATION}:
         values = {k: record[k] for k in FIELDS[kind]}
         require(record["id"] == digest({"kind": kind, "scope_id": scope["id"], **values})[:32])
@@ -993,12 +1003,18 @@ def validate_transition(payload, previous=None):
                 if kind == ACTIVATION:
                     require(INTENT + ":" + r["intent_id"] in old)
         elif kind in {OPERATION, QUERY}:
-            require(
-                r["status"] == "reserved"
-                and all(r[k] is None for k in ("capture_started_at", "raw", "receipt"))
-            )
-            require(ACTIVATION + ":" + r["activation_id"] in old)
-            candidate_gate(previous, r["activation_id"])
+            if kind == QUERY and "observation_activation_id" in r:
+                from core.execution.image_comparison_observation import validate_action_birth
+
+                require(r["raw"] is None and r["receipt"] is None)
+                validate_action_birth(previous, r)
+            else:
+                require(
+                    r["status"] == "reserved"
+                    and all(r[k] is None for k in ("capture_started_at", "raw", "receipt"))
+                )
+                require(ACTIVATION + ":" + r["activation_id"] in old)
+                candidate_gate(previous, r["activation_id"])
             if kind == QUERY:
                 op = old[OPERATION + ":" + r["operation_id"]]
                 require(op["status"] == "accepted" and op["fee_id"] is not None)
@@ -1026,6 +1042,10 @@ def validate_transition(payload, previous=None):
             require(old[OPERATION + ":" + r["operation_id"]]["raw"] is not None)
         elif kind == ARTIFACT:
             require(old[QUERY + ":" + r["query_id"]]["status"] == "completed")
+        if kind in {FEE, ARTIFACT} and "observation_activation_id" in r:
+            from core.execution.image_comparison_observation import validate_action_birth
+
+            validate_action_birth(previous, r)
     for key, before in old.items():
         if before["kind"] not in KINDS:
             continue

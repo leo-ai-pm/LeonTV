@@ -112,6 +112,10 @@ def _response_deadline(request):
         binding.update(response_deadline_at=permit["response_deadline_at"],
             response_contract_hash=permit["response_contract_hash"],
             response_window_seconds=request["comparison_authority"]["response_policy"]["response_window_seconds"])
+    if request["kind"] == "controlled_image_comparison_observation_http_v1":
+        binding.update(response_deadline_at=permit["response_deadline_at"],
+            response_contract_hash=permit["response_contract_hash"],
+            response_window_seconds=request["observation_authority"]["response_policy"]["response_window_seconds"])
     return response_deadline(binding)
 
 

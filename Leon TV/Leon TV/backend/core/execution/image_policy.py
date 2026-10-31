@@ -318,18 +318,30 @@ def _descriptor_snapshot():
 
 def _checked(value):
     try:
-        value = json_copy(value, limit=MAX_DESCRIPTOR_BYTES)
         proofs = _SNAPSHOT_PROOFS.get()
         serialized = None
         if proofs is not None:
-            # Full strict input is the key; a caller's seal is never a proof.
-            # json_copy above rejects non-JSON types before serialization.
-            serialized = json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+            from core.planner.review import json_value
+
+            # One strict serialization replaces json_copy + a second full
+            # serialization. Default whitespace preserves json_copy's exact
+            # byte-size limit and input order. This proof is local
+            # to this read, keyed by the entire actual input, never its seal.
+            require(json_value(value))
+            serialized = json.dumps(value, ensure_ascii=False, allow_nan=False)
+            require(len(serialized.encode("utf-8")) <= MAX_DESCRIPTOR_BYTES)
             if serialized in proofs["inputs"]:
-                return value
+                return parse_json(serialized)
+            value = parse_json(serialized)
+        else:
+            value = json_copy(value, limit=MAX_DESCRIPTOR_BYTES)
         require(type(value) is dict and value.get("descriptor_hash") == digest({key: item for key, item in value.items() if key != "descriptor_hash"}))
         if value.get("kind") == "controlled_image_comparison_http_v1":
             from core.execution.image_comparison_policy import rebuild
+
+            rebuilt = rebuild(value)
+        elif value.get("kind") == "controlled_image_comparison_observation_http_v1":
+            from core.execution.image_comparison_observation_policy import rebuild
 
             rebuilt = rebuild(value)
         elif value.get("kind") == "controlled_image_observation_http_v1":
@@ -385,6 +397,11 @@ class FrozenImageRequest:
                 response_contract_hash=permit["response_contract_hash"])
         if value["kind"] == "controlled_image_observation_http_v1":
             continuation = {key: permit[key] for key in ("observation_activation_id", "observation_revision_sequence", "source_operation_id")}
+        if value["kind"] == "controlled_image_comparison_observation_http_v1":
+            continuation = {key: permit[key] for key in ("observation_activation_id", "observation_revision_sequence", "source_operation_id")}
+            continuation.update(response_deadline_at=permit["response_deadline_at"],
+                response_window_seconds=value["observation_authority"]["response_policy"]["response_window_seconds"],
+                response_contract_hash=permit["response_contract_hash"])
         return {"kind": value["kind"], "scope": value["scope"], "operation_id": permit["operation_id"], "task_id": permit["task_id"],
             "capture_id": permit["capture_id"], "nonce": permit["nonce"], "deadline_at": permit["deadline_at"],
             "action": permit["action"], "method": value["method"], "descriptor_hash": value["descriptor_hash"],

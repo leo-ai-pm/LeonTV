@@ -8,6 +8,11 @@ QUERY = "image_comparison_query"
 FEE = "image_comparison_fee"
 ARTIFACT = "image_comparison_artifact"
 KINDS = {QUOTE, INTENT, ACTIVATION, OPERATION, QUERY, FEE, ARTIFACT}
+OBS_QUOTE = "image_comparison_observation_quote"
+OBS_ACTIVATION = "image_comparison_observation_activation"
+OBS_KINDS = {OBS_QUOTE, OBS_ACTIVATION}
+OBS_FIELDS = {OBS_QUOTE: {"disclosure", "disclosure_hash"},
+              OBS_ACTIVATION: {"quote_id", "disclosure_hash", "consent"}}
 COMMON = {"schema_version", "kind", "id", "scope_id", "task_id", "created_at"}
 FIELDS = {
     QUOTE: {"proposal"},
@@ -51,6 +56,8 @@ FIELDS = {
 
 def record_fields(record):
     fields = COMMON | FIELDS[record["kind"]]
+    if record["kind"] in {QUERY, FEE, ARTIFACT} and "observation_activation_id" in record:
+        fields = fields | {"observation_activation_id"}
     if (
         record["kind"] == FEE
         and record.get("candidate", {}).get("kind") == "image_task_fee_candidate_v1"

@@ -2,11 +2,13 @@
 import base64
 import copy
 import hashlib
+import json
 from types import SimpleNamespace
 
 from core.creator.store import ID_RE, KEY_RE, CreatorError, digest
 from core.execution.fees import FrozenFeeSource, operation_basis, parse_export
 from core.execution.image_comparison_schema import FIELDS as COMPARISON_FIELDS
+from core.execution.image_comparison_schema import OBS_FIELDS
 from core.execution.image_fees import candidate_for
 from core.execution.image_policy import FrozenImageRequest, ImageToolPolicy, MediaBudgetAnchor
 from core.execution.image_receipts import decode_query, decode_submit, verify_delivery
@@ -19,7 +21,6 @@ from core.execution.reference_derivation import (
 )
 from core.execution.task_image_fees import candidate_for_task, claim_keys
 from core.planner.product_assets import image_jobs
-from core.planner.review import json_copy
 
 CORE = ("tasks", "quotes", "grants", "operations", "keys", "accounts")
 FIELDS = {
@@ -44,6 +45,7 @@ FIELDS = {
     "key": {"verb", "request", "request_hash", "resource_key"},
 }
 FIELDS.update(COMPARISON_FIELDS)
+FIELDS.update(OBS_FIELDS)
 COMMON = {"schema_version", "kind", "id", "scope_id", "task_id", "created_at"}
 STATES = {"reserved", "submitting", "unknown", "accepted", "rejected", "pending", "completed", "failed"}
 
@@ -146,6 +148,10 @@ def operation_references(payload, scope, operation, *, source_payload=None, reen
 def _record_fields(record, media):
     """Explicit optional profiles; old exact field sets remain unchanged."""
     fields = COMMON | FIELDS[record["kind"]]
+    if record["kind"] in COMPARISON_FIELDS:
+        from core.execution.image_comparison_schema import record_fields
+
+        return record_fields(record)
     if record["kind"] == "scope" and "reference_profile" in record:
         fields = fields | {"reference_profile"}
     if record["kind"] == "scope" and "manifest_origin" in record:
@@ -231,10 +237,19 @@ def text_claim_key(payload, operation_id, export_bytes, fee_source):
     return key
 
 
+def _check_media_json(value, limit=48 * 1048576):
+    """Same strict JSON/finite/UTF8/default-whitespace limit; no unused parse."""
+    from core.planner.review import json_value
+
+    require(json_value(value))
+    raw = json.dumps(value, ensure_ascii=False, allow_nan=False)
+    require(len(raw.encode("utf-8")) <= limit)
+
+
 def _validate(payload, previous, *, historical=False):
     media = payload.get("media", {})
     require(type(media) is dict)
-    json_copy(media, limit=48 * 1048576)
+    _check_media_json(media)
     for key, record in media.items():
         require(type(record) is dict and record.get("kind") in FIELDS)
         require(set(record) == _record_fields(record, media))
@@ -304,6 +319,11 @@ def _validate(payload, previous, *, historical=False):
         require(record["task_id"] == scope["task_id"])
         if kind in COMPARISON_FIELDS:
             from core.execution.image_comparison import validate_record
+            validate_record(payload, record)
+            continue
+        if kind in OBS_FIELDS:
+            from core.execution.image_comparison_observation import validate_record
+
             validate_record(payload, record)
             continue
         if kind in {"code_continuation_quote", "code_continuation_activation"}:
@@ -560,6 +580,10 @@ def validate(payload, previous=None, *, historical=False):
         _validate(payload, previous, historical=historical)
         if any(r["kind"] in COMPARISON_FIELDS for r in payload.get("media", {}).values()):
             from core.execution.image_comparison import validate_transition
+            validate_transition(payload, previous)
+        if any(r["kind"] in OBS_FIELDS for r in payload.get("media", {}).values()):
+            from core.execution.image_comparison_observation import validate_transition
+
             validate_transition(payload, previous)
         from core.execution.scope_budget import _validate_fee_owners
         _validate_fee_owners(payload)

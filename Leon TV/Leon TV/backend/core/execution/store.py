@@ -171,6 +171,11 @@ def _validate_state(state):
     if any(record["kind"].startswith("image_comparison_") for record in payload.get("media", {}).values()):
         from core.execution.image_comparison import validate_history
         validate_history(state, payload)
+    if any(record["kind"] in {"image_comparison_observation_quote", "image_comparison_observation_activation"}
+           for record in payload.get("media", {}).values()):
+        from core.execution.image_comparison_observation import validate_history
+
+        validate_history(state, payload)
     return payload
 
 
