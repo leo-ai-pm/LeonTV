@@ -226,6 +226,12 @@ def test_pinned_connector_uses_checked_address_once_and_tls_hostname_verificatio
     assert events == [("timeout", 1), ("connect", ("8.8.8.8", 443))]
 
 
+@pytest.mark.skipif(
+    os.environ.get("D47_ISOLATED_RUNNER") != "1"
+    or not os.environ.get("D47_SOCKET_LOG")
+    or not os.environ.get("D47_LOCAL_LOG"),
+    reason="Requires the isolated runner and inherited child network/fsync guard (D47_ISOLATED_RUNNER=1)",
+)
 def test_worker_independent_cutoff_rejects_complete_JSON_before_proof_fsync(tmp_path, monkeypatch):
     request = make_query()
     raw = raw_for(request, {"code": 0, "data": {"id": request.frozen()["accepted_task_id"], "status": "completed",

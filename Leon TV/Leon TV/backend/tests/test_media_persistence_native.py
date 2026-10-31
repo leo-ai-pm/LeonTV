@@ -33,6 +33,13 @@ from core.execution.receipts import ReceiptCaptureSettings
 from core.execution.store import ExecutionStore
 
 
+@pytest.mark.skipif(
+    os.environ.get("D47_MATCHING_AUTHORITY_SOURCE") != "1"
+    or os.environ.get("D47_ISOLATED_RUNNER") != "1"
+    or not os.environ.get("D47_SOCKET_LOG")
+    or not os.environ.get("D47_LOCAL_LOG"),
+    reason="Requires the isolated matching-source runner (D47_MATCHING_AUTHORITY_SOURCE=1), external-network guard and loopback worker seam",
+)
 def test_native_media_persistence_future_task_and_recovery(asset_control_case, monkeypatch, tmp_path):
     matching_source = os.environ.get("D47_MATCHING_AUTHORITY_SOURCE") == "1"
     if matching_source:
