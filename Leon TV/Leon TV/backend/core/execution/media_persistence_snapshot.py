@@ -1,4 +1,4 @@
-"""Committed native proof, only while its owning store transaction is locked.
+"""Committed native proof inside a locked transaction or synchronous inspection.
 
 Not a permission cache: every read checks the exact file and returns a defensive
 copy of the committed input, never the mutable transaction working payload.

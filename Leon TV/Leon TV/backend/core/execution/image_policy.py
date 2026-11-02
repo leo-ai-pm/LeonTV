@@ -4,9 +4,11 @@ The caller must separately verify a durable media allocation, grant and begin
 record. Nothing here reserves money, writes journals or submits a request.
 """
 import base64
+import copy
 import hashlib
 import json
 import re
+import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -29,6 +31,7 @@ MAX_BYTES = 1048576
 MAX_DESCRIPTOR_BYTES = 8 * MAX_BYTES
 _SNAPSHOT_PROOFS = ContextVar("image_descriptor_snapshot_proofs", default=None)
 _MAX_SNAPSHOT_PROOFS = 32
+_MAX_SNAPSHOT_TOKEN_NODES = 65536
 Hash = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Identifier = Annotated[str, Field(pattern=r"^[0-9a-f]{32}$")]
 AMOUNT = re.compile(r"^(?:0|[1-9][0-9]{0,2})(?:\.[0-9]{1,6})?$")
@@ -308,17 +311,35 @@ def _descriptor_snapshot():
     from core.execution.image_receipts import _delivery_snapshot
     from core.execution.reference_derivation import _reference_snapshot
 
-    token = _SNAPSHOT_PROOFS.set({"inputs": set(), "bytes": 0})
+    facts = {"inputs": set(), "bytes": 0, "frozen": {}, "frozen_bytes": 0,
+             "tokens": {}, "token_bytes": 0, "token_nodes": 0,
+             "active": True, "thread": threading.get_ident()}
+    token = _SNAPSHOT_PROOFS.set(facts)
     try:
         with _reference_snapshot(), _delivery_snapshot():
             yield
     finally:
+        facts["active"] = False
+        facts["inputs"].clear()
+        facts["frozen"].clear()
+        facts["tokens"].clear()
+        for pool in facts.get("value_proofs", {}).values():
+            pool["inputs"].clear()
+            pool["bytes"] = 0
+        facts.get("value_proofs", {}).clear()
+        facts["bytes"] = facts["frozen_bytes"] = 0
+        facts["token_bytes"] = facts["token_nodes"] = 0
         _SNAPSHOT_PROOFS.reset(token)
+
+
+def _snapshot_proofs():
+    facts = _SNAPSHOT_PROOFS.get()
+    return facts if facts is not None and facts["active"] and facts["thread"] == threading.get_ident() else None
 
 
 def _checked(value):
     try:
-        proofs = _SNAPSHOT_PROOFS.get()
+        proofs = _snapshot_proofs()
         serialized = None
         if proofs is not None:
             from core.planner.review import json_value
@@ -375,11 +396,51 @@ class FrozenImageRequest:
 
     @classmethod
     def from_frozen(cls, value):
+        proofs = _snapshot_proofs()
+        if proofs is not None and cls is FrozenImageRequest:
+            from core.execution.validation_read_proofs import _key, _thaw
+
+            try:
+                nodes = [0]
+                captured, _ = _key(value, _budget=nodes)
+            except (ValueError, TypeError, RecursionError):
+                pass
+            else:
+                # A complete typed tree, not an object id or claimed hash.
+                # Validation consumes this same immutable captured input.
+                key = (captured, MAX_DESCRIPTOR_BYTES, MAX_BYTES)
+                if key in proofs["tokens"]:
+                    return cls(proofs["tokens"][key])
+                checked = _checked(_thaw(captured))
+                serialized = json.dumps(checked, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+                size = len(serialized.encode("utf-8"))
+                if (len(proofs["tokens"]) < _MAX_SNAPSHOT_PROOFS
+                        and proofs["token_bytes"] + size <= MAX_DESCRIPTOR_BYTES
+                        and proofs["token_nodes"] + nodes[0] <= _MAX_SNAPSHOT_TOKEN_NODES):
+                    proofs["tokens"][key] = serialized
+                    proofs["token_bytes"] += size
+                    proofs["token_nodes"] += nodes[0]
+                return cls(serialized)
         checked = _checked(value)
         return cls(json.dumps(checked, ensure_ascii=False, allow_nan=False, separators=(",", ":")))
 
     def frozen(self):
-        return _checked(parse_json(self._serialized))
+        serialized = self._serialized
+        proofs = _snapshot_proofs()
+        if proofs is None or type(serialized) is not str:
+            return _checked(parse_json(serialized))
+        # The complete immutable JSON token is the key, never its claimed seal
+        # or object identity. Only a successful full reconstruction is stored;
+        # mutable returned dictionaries cannot modify this private proof.
+        key = (serialized, MAX_DESCRIPTOR_BYTES, MAX_BYTES)
+        if key in proofs["frozen"]:
+            return copy.deepcopy(proofs["frozen"][key])
+        value = _checked(parse_json(serialized))
+        size = len(serialized.encode("utf-8"))
+        if len(proofs["frozen"]) < _MAX_SNAPSHOT_PROOFS and proofs["frozen_bytes"] + size <= MAX_DESCRIPTOR_BYTES:
+            proofs["frozen"][key] = copy.deepcopy(value)
+            proofs["frozen_bytes"] += size
+        return value
 
     def binding(self):
         value = self.frozen()

@@ -188,6 +188,36 @@ def _validate_state(state):
 
 
 class ExecutionStore(CreatorBriefStore):
+    @contextmanager
+    def inspection_snapshot(self):
+        """One fully validated input for a synchronous read-only inspection.
+
+        Nested control reads still reopen the native file and compare its exact
+        bytes and identity. No authority, source, fee or private-file decisions
+        are cached, and the proof is discarded on every normal/error exit.
+        """
+        from core.execution.media_persistence_snapshot import (
+            committed_snapshot,
+            read_committed_bytes,
+            read_snapshot,
+        )
+
+        path = self.path("state.json")
+        existing = read_snapshot(path, MAX_STATE_BYTES)
+        if existing is not None:
+            yield existing
+            return
+        if not path.exists():
+            yield self.read_only()
+            return
+        try:
+            raw, identity = read_committed_bytes(path, MAX_STATE_BYTES)
+            payload = validate_state(parse_json(raw.decode("utf-8")))
+        except (CreatorError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError, UnicodeError, OSError, RecursionError):
+            raise CreatorError("CORRUPT_STORAGE", "Execution journal failed integrity checks") from None
+        with committed_snapshot(path, raw, payload, identity):
+            yield payload
+
     def read_only(self):
         """Atomic file snapshots need no write lock or recovery side effects."""
         from core.execution.receipts import read_json

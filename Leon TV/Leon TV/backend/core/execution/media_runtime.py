@@ -75,12 +75,12 @@ class MediaExecution:
             unlock_file(lock)
 
     def get(self, task_id):
-        payload = self.store.read_only()
-        if task_id not in payload["tasks"]:
-            raise CreatorError("NOT_FOUND", "Execution record not found", 404)
-        from core.execution.production_image_status import production_images
+        with self.store.inspection_snapshot() as payload:
+            if task_id not in payload["tasks"]:
+                raise CreatorError("NOT_FOUND", "Execution record not found", 404)
+            from core.execution.production_image_status import production_images
 
-        return {"media": projection(payload, task_id), "production_images": production_images(self.store, payload, task_id)}
+            return {"media": projection(payload, task_id), "production_images": production_images(self.store, payload, task_id)}
 
     @staticmethod
     def _record(kind, record_id, task_id, scope_id, **fields):

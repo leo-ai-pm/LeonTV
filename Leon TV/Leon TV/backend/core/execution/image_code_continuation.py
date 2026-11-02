@@ -64,12 +64,20 @@ def _id(value):
 
 
 def _manifest(value):
+    from core.execution.validation_read_proofs import reconstructed
+
+    reconstructed("manifest_schema", {"value": value, "required": list(REQUIRED_CODE_FILES), "extra": sorted(EXTRA_CODE)},
+                  lambda actual: _validate_manifest(actual["value"], required=actual["required"], extra=actual["extra"]))
+    return value
+
+
+def _validate_manifest(value, *, required=None, extra=None):
     require(type(value) is dict and 1 <= len(value) <= 1024)
     for name, sha in value.items():
         path = PurePosixPath(name)
         require(type(name) is str and str(path) == name and not path.is_absolute() and ".." not in path.parts
                 and "\\" not in name and len(name) <= 500 and _hash(sha))
-    require(set(REQUIRED_CODE_FILES) | EXTRA_CODE <= set(value))
+    require(set(REQUIRED_CODE_FILES if required is None else required) | set(EXTRA_CODE if extra is None else extra) <= set(value))
     return value
 
 

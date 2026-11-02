@@ -67,6 +67,16 @@ def records(payload, kind):
 
 
 def native_context(payload, task_id, *, historical=False):
+    from core.execution.validation_read_proofs import reconstructed
+
+    # Exactly the original consumed CORE input, including every account/text
+    # record. Any CORE value change must reconstruct accepted history again.
+    source = {name: payload[name] for name in CORE}
+    return reconstructed("historical_context", {"core": source, "task_id": task_id, "historical": historical},
+                         lambda actual: _native_context(actual["core"], actual["task_id"], historical=actual["historical"]))
+
+
+def _native_context(payload, task_id, *, historical=False):
     from core.execution.asset_handoff import _prepare
     core = {name: copy.deepcopy(payload[name]) for name in CORE}
     if historical:
