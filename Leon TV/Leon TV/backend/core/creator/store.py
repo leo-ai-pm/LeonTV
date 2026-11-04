@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
+from core.execution.json_read_codec import encoder as read_json_encoder
 from core.harness.store import lock_file, unlock_file
 
 CONTENT_FIELDS = {"title", "script", "requirements", "production", "budget_cny"}
@@ -29,7 +30,9 @@ class CreatorError(Exception):
 
 
 def digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    encoder = read_json_encoder(sort_keys=True, ensure_ascii=False)
+    data = encoder.encode(value) if encoder is not None else json.dumps(value, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
 
 def source_hash(script):

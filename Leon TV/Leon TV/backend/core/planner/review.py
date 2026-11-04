@@ -61,9 +61,12 @@ def json_value(value):
 
 
 def json_copy(value, limit=MAX_INPUT_BYTES):
+    from core.execution.json_read_codec import encoder as read_json_encoder
+
     # Copy only actual JSON types; serialization must not repair strict schemas.
     require(json_value(value))
-    data = json.dumps(value, ensure_ascii=False, allow_nan=False)
+    encoder = read_json_encoder(ensure_ascii=False, allow_nan=False)
+    data = encoder.encode(value) if encoder is not None else json.dumps(value, ensure_ascii=False, allow_nan=False)
     require(len(data.encode("utf-8")) <= limit)
     return parse_json(data)
 

@@ -309,6 +309,7 @@ def _descriptor_snapshot():
     journal snapshot gets a fresh set, including nested reconstructions.
     """
     from core.execution.image_receipts import _delivery_snapshot
+    from core.execution.json_read_codec import string_snapshot
     from core.execution.reference_derivation import _reference_snapshot
 
     facts = {"inputs": set(), "bytes": 0, "frozen": {}, "frozen_bytes": 0,
@@ -316,7 +317,7 @@ def _descriptor_snapshot():
              "active": True, "thread": threading.get_ident()}
     token = _SNAPSHOT_PROOFS.set(facts)
     try:
-        with _reference_snapshot(), _delivery_snapshot():
+        with string_snapshot(), _reference_snapshot(), _delivery_snapshot():
             yield
     finally:
         facts["active"] = False
