@@ -265,23 +265,7 @@ def _check_media_json(value, limit=48 * 1048576):
     require(len(raw.encode("utf-8")) <= limit)
 
 
-def _validate(payload, previous, *, historical=False):
-    media = payload.get("media", {})
-    require(type(media) is dict)
-    _check_media_json(media)
-    for key, record in media.items():
-        require(type(record) is dict and record.get("kind") in FIELDS)
-        require(set(record) == _record_fields(record, media))
-        require(type(record["schema_version"]) is int and record["schema_version"] == 1)
-        require(key == record["kind"] + ":" + record["id"] and record["task_id"] in payload["tasks"])
-        timestamp(record["created_at"])
-        if record["kind"] not in {"claim", "fee", "key"}:
-            require(type(record["id"]) is str and ID_RE.fullmatch(record["id"]) is not None)
-        if record["kind"] in {"operation", "query", "image_comparison_operation", "image_comparison_query"}:
-            require(record["id"] not in payload["operations"])
-    capture_ids = [record["id"] for record in media.values() if record["kind"] in {"operation", "query", "image_comparison_operation", "image_comparison_query"}]
-    require(len(capture_ids) == len(set(capture_ids)))
-    scopes = sorted(records(payload, "scope"), key=lambda scope: scope["ordinal"])
+def _validate_scope_set(payload, scopes):
     last_risk, last_calls, allocations = {}, {}, set()
     for ordinal, scope in enumerate(scopes, 1):
         require(scope["scope_id"] == scope["id"] and type(scope["ordinal"]) is int and scope["ordinal"] == ordinal)
@@ -314,6 +298,215 @@ def _validate(payload, previous, *, historical=False):
         require(scope["handoff"]["evidence_kind"] in {"synthetic", "empirical_receipts"})
         image_jobs(context, scope["manifest"], expected_manifest_hash=scope["manifest"]["manifest_hash"])
         require(FrozenFeeSource.model_validate(scope["fee_source"]).account_namespace == account["id"])
+
+
+def _validate_record(payload, record, used_requests):
+    media = payload.get("media", {})
+    kind = record["kind"]
+    if kind == "scope":
+        return used_requests
+    if kind == "claim" and record["owner"] == "text":
+        require(record["scope_id"] is None)
+        original = payload["operations"][record["operation_id"]]
+        require(original["task_id"] == record["task_id"])
+        require(record["evidence_hash"] == digest(original["empirical"]["fee_evidence"]))
+        claim_key = text_claim_key(payload, original["id"], base64.b64decode(record["export_base64"], validate=True), record["fee_source"])
+        require(claim_key == record["id"])
+        require(claim_key not in used_requests or used_requests[claim_key] == original["id"])
+        used_requests[claim_key] = original["id"]
+        return used_requests
+    scope = media["scope:" + record["scope_id"]]
+    require(record["task_id"] == scope["task_id"])
+    if kind in COMPARISON_FIELDS:
+        from core.execution.image_comparison import validate_record
+        validate_record(payload, record)
+        return used_requests
+    if kind in OBS_FIELDS:
+        from core.execution.image_comparison_observation import validate_record
+
+        validate_record(payload, record)
+        return used_requests
+    if kind in PERSISTENCE_FIELDS:
+        from core.execution.media_persistence_contract import validate_record
+
+        validate_record(payload, record)
+        return used_requests
+    if kind in PRODUCTION_PERSISTENCE_FIELDS:
+        from core.execution.production_image_persistence_contract import validate_record
+
+        validate_record(payload, record)
+        return used_requests
+    if kind in {"code_continuation_quote", "code_continuation_activation"}:
+        from core.execution.image_code_continuation import validate_record
+        validate_record(payload, record)
+        return used_requests
+    if kind in {"validity_continuation_quote", "validity_continuation_intent", "validity_continuation_activation"}:
+        from core.execution.image_validity_continuation import validate_record
+        validate_record(payload, record)
+        return used_requests
+    if kind in {"runtime_continuation_quote", "runtime_continuation_activation"}:
+        from core.execution.image_runtime_continuation import validate_record
+        validate_record(payload, record)
+        return used_requests
+    if kind in {"image_observation_quote", "image_observation_activation"}:
+        from core.execution.image_observation_continuation import validate_record
+        validate_record(payload, record)
+        return used_requests
+    if kind == "quote":
+        require(record["disclosure_hash"] == digest({key: value for key, value in record.items() if key != "disclosure_hash"}))
+        require(digest(record["disclosure"]) == digest(disclosure_for(scope)))
+        require(timestamp(scope["created_at"]) <= timestamp(record["created_at"]) < timestamp(scope["policy"]["valid_until"]))
+    elif kind == "grant":
+        quote = media["quote:" + record["quote_id"]]
+        require(quote["scope_id"] == record["scope_id"] and record["disclosure_hash"] == quote["disclosure_hash"])
+        require(timestamp(quote["created_at"]) <= timestamp(record["created_at"]) < timestamp(scope["policy"]["valid_until"]))
+        if record["revoked_at"] is not None:
+            require(timestamp(record["revoked_at"]) >= timestamp(record["created_at"]))
+    elif kind in {"operation", "query"}:
+        descriptor = FrozenImageRequest.from_frozen(record["descriptor"])
+        data, permit = descriptor.frozen(), descriptor.frozen()["permit"]
+        require(record["id"] == permit["operation_id"] and record["task_id"] == permit["task_id"])
+        if data["kind"] == "controlled_image_observation_http_v1":
+            from core.execution.image_observation_continuation import ACTIVATION, authority_for
+            authority = authority_for(payload, permit["observation_activation_id"])
+            require(kind == "query" and digest(data["observation_authority"]) == digest(authority)
+                and authority["scope_id"] == scope["id"] and authority["scope_hash"] == digest(scope))
+            require(digest(data["policy"]) == digest(authority["effective_policy"])
+                and digest(data["budget_anchor"]) == digest(scope["anchor"]))
+            activation = media[ACTIVATION + ":" + authority["activation_id"]]
+            require(timestamp(activation["created_at"]) <= timestamp(permit["issued_at"]))
+        elif data["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
+            from core.execution.image_runtime_continuation import authority_for
+            authority = authority_for(payload, permit["runtime_activation_id"])
+            require(digest(data["continuation_authority"]) == digest(authority)
+                    and authority["scope_id"] == scope["id"] and authority["scope_hash"] == digest(scope))
+            require(digest(data["policy"]) == digest(authority["effective_policy"])
+                    and digest(data["budget_anchor"]) == digest(scope["anchor"]))
+            activation = media["runtime_continuation_activation:" + authority["activation_id"]]
+            require(timestamp(activation["created_at"]) <= timestamp(permit["issued_at"]))
+        else:
+            require(digest(data["policy"]) == digest(scope["policy"]) and digest(data["budget_anchor"]) == digest(scope["anchor"]))
+        require(digest(data["asset_input"]) == digest(scope["asset_input"]) and digest(data["manifest"]) == digest(scope["manifest"]))
+        require(permit["handoff_hash"] == scope["handoff"]["handoff_hash"] and permit["provenance_hash"] == scope["handoff"]["provenance_hash"])
+        grant = media["grant:" + permit["grant_id"]]
+        require(grant["scope_id"] == scope["id"] and permit["disclosure_hash"] == grant["disclosure_hash"])
+        require(timestamp(grant["created_at"]) <= timestamp(permit["issued_at"]) <= timestamp(record["created_at"]))
+        require(timestamp(record["created_at"]) <= timestamp(permit["deadline_at"]))
+        require(record["status"] in STATES)
+        require(record["capture_started_at"] is not None or record["status"] == "reserved")
+        if record["capture_started_at"] is not None:
+            require(timestamp(record["created_at"]) <= timestamp(record["capture_started_at"]) <= timestamp(permit["deadline_at"]))
+        if record["raw"] is not None:
+            receipt = decode_submit(descriptor, record["raw"]) if kind == "operation" else decode_query(descriptor, record["raw"])
+            require(digest(receipt) == digest(record["receipt"]))
+            expected = receipt["classification"]
+            require(record["status"] == ("unknown" if expected == "unconfirmed" else expected))
+        else:
+            require(record["receipt"] is None and record["status"] in {"reserved", "submitting", "unknown"})
+        if kind == "operation":
+            require(data["method"] == "POST" and record["grant_id"] == grant["id"] and record["quote_id"] == grant["quote_id"])
+            require(record["shot_id"] == permit["shot_id"] and record["submission_index"] == permit["scope_submission_index"])
+            require(digest(data["references"]) == digest(operation_references(payload, scope, record)))
+            sources = reference_sources(payload, scope, record["shot_id"])
+            if data["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
+                from core.execution.image_continuation_policy import bind_reference_sources
+                require(digest(data["reference_bindings"]) == digest(bind_reference_sources(sources, data["references"])))
+            for source in sources:
+                preceding = media["operation:" + source["operation_id"]]
+                require(preceding["submission_index"] < record["submission_index"])
+            if record["fee_id"] is not None:
+                require(media["fee:" + record["fee_id"]]["operation_id"] == record["id"])
+            if record["delivery_id"] is not None:
+                require(media["delivery:" + record["delivery_id"]]["operation_id"] == record["id"])
+        else:
+            original = media["operation:" + record["operation_id"]]
+            require(data["method"] == "GET" and record["query_index"] == data["query_index"])
+            require(digest(data["parent_submit"]) == digest(original["descriptor"]) and digest(data["submit_raw"]) == digest(original["raw"]))
+    elif kind == "fee":
+        original = media["operation:" + record["operation_id"]]
+        descriptor = FrozenImageRequest.from_frozen(original["descriptor"])
+        export_bytes = base64.b64decode(record["export_base64"], validate=True)
+        if record["candidate"].get("kind") == "image_task_fee_candidate_v1":
+            candidate = candidate_for_task(descriptor, original["raw"], export_bytes,
+                base64.b64decode(record["account_export_base64"], validate=True), scope["fee_source"],
+                record["task_fee_source"], observed_at=record["candidate"]["observed_at"])
+        else:
+            candidate = candidate_for(descriptor, original["raw"], export_bytes,
+                scope["fee_source"], observed_at=record["candidate"]["observed_at"])
+        require(digest(candidate) == digest(record["candidate"]) and record["id"] == candidate["platform_log_id"])
+        require(original["fee_id"] == record["id"])
+        require("claim:" + record["id"] in media and media["claim:" + record["id"]]["owner"] == "media")
+        require(not candidate_claimed(payload, candidate, original["id"]))
+    elif kind == "claim":
+        require(record["owner"] == "media" and digest(record["fee_source"]) == digest(scope["fee_source"]))
+        fee = media["fee:" + record["id"]]
+        require(fee["operation_id"] == record["operation_id"] and record["evidence_hash"] == digest(fee["candidate"]))
+        require(record["export_base64"] == fee["export_base64"])
+        require(record["id"] not in used_requests)
+        used_requests[record["id"]] = record["operation_id"]
+    elif kind == "delivery":
+        raw_image = base64.b64decode(record["bytes_base64"], validate=True)
+        require(len(raw_image) <= 2 * 1048576)
+        query = media["query:" + record["query_id"]]
+        require(query["operation_id"] == record["operation_id"])
+        result = verify_delivery(FrozenImageRequest.from_frozen(query["descriptor"]), query["raw"], raw_image)
+        require(digest(result) == digest(record["delivery"]))
+    elif kind == "reference_derivation":
+        require("reference_profile" in scope)
+        operation = media["operation:" + record["operation_id"]]
+        require(operation["scope_id"] == scope["id"] and record["proof"]["derivation_id"] == record["id"])
+        require(sum(entry == {"id": record["id"], "derivation_hash": record["proof"]["derivation_hash"]}
+                    for entry in operation["reference_derivations"]) == 1)
+    elif kind == "key":
+        require(record["request_hash"] == digest(record["request"]) and record["resource_key"] in media)
+        verb = record["verb"]
+        target = media[record["resource_key"]]
+        require(verb in {"quote", "grant", "submit", "query"})
+        prefix, _, token = record["id"].partition(":")
+        require(prefix == verb and KEY_RE.fullmatch(token) is not None)
+        require(target["kind"] == {"quote": "quote", "grant": "grant", "submit": "operation", "query": "query"}[verb])
+        require(record["task_id"] == target["task_id"] and record["scope_id"] == target["scope_id"])
+        request = record["request"]
+        expected = {"task_id": target["task_id"]}
+        if verb == "grant":
+            expected.update(quote_id=target["quote_id"], disclosure_hash=target["disclosure_hash"], consent=True)
+            require(type(request.get("consent")) is bool)
+        elif verb == "submit":
+            expected.update(grant_id=target["grant_id"], shot_id=target["shot_id"], references=request.get("references"))
+            if OPERATION_FIELD in target:
+                expected[OPERATION_FIELD] = target[OPERATION_FIELD]
+            require(type(request.get("references")) is list)
+            require(request["references"] == [] or digest(request["references"]) == digest(target["descriptor"]["references"]))
+        elif verb == "query":
+            expected.update(operation_id=target["operation_id"])
+        if verb in {"submit", "query"} and target["descriptor"]["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
+            expected["runtime_activation_id"] = target["descriptor"]["permit"]["runtime_activation_id"]
+        if verb == "query" and target["descriptor"]["kind"] == "controlled_image_observation_http_v1":
+            expected["observation_activation_id"] = target["descriptor"]["permit"]["observation_activation_id"]
+        require(digest(request) == digest(expected))
+    return used_requests
+
+
+def _validate(payload, previous, *, historical=False):
+    media = payload.get("media", {})
+    require(type(media) is dict)
+    _check_media_json(media)
+    for key, record in media.items():
+        require(type(record) is dict and record.get("kind") in FIELDS)
+        require(set(record) == _record_fields(record, media))
+        require(type(record["schema_version"]) is int and record["schema_version"] == 1)
+        require(key == record["kind"] + ":" + record["id"] and record["task_id"] in payload["tasks"])
+        timestamp(record["created_at"])
+        if record["kind"] not in {"claim", "fee", "key"}:
+            require(type(record["id"]) is str and ID_RE.fullmatch(record["id"]) is not None)
+        if record["kind"] in {"operation", "query", "image_comparison_operation", "image_comparison_query"}:
+            require(record["id"] not in payload["operations"])
+    capture_ids = [record["id"] for record in media.values() if record["kind"] in {"operation", "query", "image_comparison_operation", "image_comparison_query"}]
+    require(len(capture_ids) == len(set(capture_ids)))
+    scopes = sorted(records(payload, "scope"), key=lambda scope: scope["ordinal"])
+    from core.execution import history_validation
+
+    history_validation.scope_set(payload, scopes, _validate_scope_set)
     used_requests = {}
     for op in payload["operations"].values():
         evidence = op.get("empirical", {}).get("fee_evidence")
@@ -321,188 +514,7 @@ def _validate(payload, previous, *, historical=False):
             require(evidence["platform_log_id"] not in used_requests)
             used_requests[evidence["platform_log_id"]] = op["id"]
     for record in media.values():
-        kind = record["kind"]
-        if kind == "scope":
-            continue
-        if kind == "claim" and record["owner"] == "text":
-            require(record["scope_id"] is None)
-            original = payload["operations"][record["operation_id"]]
-            require(original["task_id"] == record["task_id"])
-            require(record["evidence_hash"] == digest(original["empirical"]["fee_evidence"]))
-            claim_key = text_claim_key(payload, original["id"], base64.b64decode(record["export_base64"], validate=True), record["fee_source"])
-            require(claim_key == record["id"])
-            require(claim_key not in used_requests or used_requests[claim_key] == original["id"])
-            used_requests[claim_key] = original["id"]
-            continue
-        scope = media["scope:" + record["scope_id"]]
-        require(record["task_id"] == scope["task_id"])
-        if kind in COMPARISON_FIELDS:
-            from core.execution.image_comparison import validate_record
-            validate_record(payload, record)
-            continue
-        if kind in OBS_FIELDS:
-            from core.execution.image_comparison_observation import validate_record
-
-            validate_record(payload, record)
-            continue
-        if kind in PERSISTENCE_FIELDS:
-            from core.execution.media_persistence_contract import validate_record
-
-            validate_record(payload, record)
-            continue
-        if kind in PRODUCTION_PERSISTENCE_FIELDS:
-            from core.execution.production_image_persistence_contract import validate_record
-
-            validate_record(payload, record)
-            continue
-        if kind in {"code_continuation_quote", "code_continuation_activation"}:
-            from core.execution.image_code_continuation import validate_record
-            validate_record(payload, record)
-            continue
-        if kind in {"validity_continuation_quote", "validity_continuation_intent", "validity_continuation_activation"}:
-            from core.execution.image_validity_continuation import validate_record
-            validate_record(payload, record)
-            continue
-        if kind in {"runtime_continuation_quote", "runtime_continuation_activation"}:
-            from core.execution.image_runtime_continuation import validate_record
-            validate_record(payload, record)
-            continue
-        if kind in {"image_observation_quote", "image_observation_activation"}:
-            from core.execution.image_observation_continuation import validate_record
-            validate_record(payload, record)
-            continue
-        if kind == "quote":
-            require(record["disclosure_hash"] == digest({key: value for key, value in record.items() if key != "disclosure_hash"}))
-            require(digest(record["disclosure"]) == digest(disclosure_for(scope)))
-            require(timestamp(scope["created_at"]) <= timestamp(record["created_at"]) < timestamp(scope["policy"]["valid_until"]))
-        elif kind == "grant":
-            quote = media["quote:" + record["quote_id"]]
-            require(quote["scope_id"] == record["scope_id"] and record["disclosure_hash"] == quote["disclosure_hash"])
-            require(timestamp(quote["created_at"]) <= timestamp(record["created_at"]) < timestamp(scope["policy"]["valid_until"]))
-            if record["revoked_at"] is not None:
-                require(timestamp(record["revoked_at"]) >= timestamp(record["created_at"]))
-        elif kind in {"operation", "query"}:
-            descriptor = FrozenImageRequest.from_frozen(record["descriptor"])
-            data, permit = descriptor.frozen(), descriptor.frozen()["permit"]
-            require(record["id"] == permit["operation_id"] and record["task_id"] == permit["task_id"])
-            if data["kind"] == "controlled_image_observation_http_v1":
-                from core.execution.image_observation_continuation import ACTIVATION, authority_for
-                authority = authority_for(payload, permit["observation_activation_id"])
-                require(kind == "query" and digest(data["observation_authority"]) == digest(authority)
-                    and authority["scope_id"] == scope["id"] and authority["scope_hash"] == digest(scope))
-                require(digest(data["policy"]) == digest(authority["effective_policy"])
-                    and digest(data["budget_anchor"]) == digest(scope["anchor"]))
-                activation = media[ACTIVATION + ":" + authority["activation_id"]]
-                require(timestamp(activation["created_at"]) <= timestamp(permit["issued_at"]))
-            elif data["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
-                from core.execution.image_runtime_continuation import authority_for
-                authority = authority_for(payload, permit["runtime_activation_id"])
-                require(digest(data["continuation_authority"]) == digest(authority)
-                        and authority["scope_id"] == scope["id"] and authority["scope_hash"] == digest(scope))
-                require(digest(data["policy"]) == digest(authority["effective_policy"])
-                        and digest(data["budget_anchor"]) == digest(scope["anchor"]))
-                activation = media["runtime_continuation_activation:" + authority["activation_id"]]
-                require(timestamp(activation["created_at"]) <= timestamp(permit["issued_at"]))
-            else:
-                require(digest(data["policy"]) == digest(scope["policy"]) and digest(data["budget_anchor"]) == digest(scope["anchor"]))
-            require(digest(data["asset_input"]) == digest(scope["asset_input"]) and digest(data["manifest"]) == digest(scope["manifest"]))
-            require(permit["handoff_hash"] == scope["handoff"]["handoff_hash"] and permit["provenance_hash"] == scope["handoff"]["provenance_hash"])
-            grant = media["grant:" + permit["grant_id"]]
-            require(grant["scope_id"] == scope["id"] and permit["disclosure_hash"] == grant["disclosure_hash"])
-            require(timestamp(grant["created_at"]) <= timestamp(permit["issued_at"]) <= timestamp(record["created_at"]))
-            require(timestamp(record["created_at"]) <= timestamp(permit["deadline_at"]))
-            require(record["status"] in STATES)
-            require(record["capture_started_at"] is not None or record["status"] == "reserved")
-            if record["capture_started_at"] is not None:
-                require(timestamp(record["created_at"]) <= timestamp(record["capture_started_at"]) <= timestamp(permit["deadline_at"]))
-            if record["raw"] is not None:
-                receipt = decode_submit(descriptor, record["raw"]) if kind == "operation" else decode_query(descriptor, record["raw"])
-                require(digest(receipt) == digest(record["receipt"]))
-                expected = receipt["classification"]
-                require(record["status"] == ("unknown" if expected == "unconfirmed" else expected))
-            else:
-                require(record["receipt"] is None and record["status"] in {"reserved", "submitting", "unknown"})
-            if kind == "operation":
-                require(data["method"] == "POST" and record["grant_id"] == grant["id"] and record["quote_id"] == grant["quote_id"])
-                require(record["shot_id"] == permit["shot_id"] and record["submission_index"] == permit["scope_submission_index"])
-                require(digest(data["references"]) == digest(operation_references(payload, scope, record)))
-                sources = reference_sources(payload, scope, record["shot_id"])
-                if data["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
-                    from core.execution.image_continuation_policy import bind_reference_sources
-                    require(digest(data["reference_bindings"]) == digest(bind_reference_sources(sources, data["references"])))
-                for source in sources:
-                    preceding = media["operation:" + source["operation_id"]]
-                    require(preceding["submission_index"] < record["submission_index"])
-                if record["fee_id"] is not None:
-                    require(media["fee:" + record["fee_id"]]["operation_id"] == record["id"])
-                if record["delivery_id"] is not None:
-                    require(media["delivery:" + record["delivery_id"]]["operation_id"] == record["id"])
-            else:
-                original = media["operation:" + record["operation_id"]]
-                require(data["method"] == "GET" and record["query_index"] == data["query_index"])
-                require(digest(data["parent_submit"]) == digest(original["descriptor"]) and digest(data["submit_raw"]) == digest(original["raw"]))
-        elif kind == "fee":
-            original = media["operation:" + record["operation_id"]]
-            descriptor = FrozenImageRequest.from_frozen(original["descriptor"])
-            export_bytes = base64.b64decode(record["export_base64"], validate=True)
-            if record["candidate"].get("kind") == "image_task_fee_candidate_v1":
-                candidate = candidate_for_task(descriptor, original["raw"], export_bytes,
-                    base64.b64decode(record["account_export_base64"], validate=True), scope["fee_source"],
-                    record["task_fee_source"], observed_at=record["candidate"]["observed_at"])
-            else:
-                candidate = candidate_for(descriptor, original["raw"], export_bytes,
-                    scope["fee_source"], observed_at=record["candidate"]["observed_at"])
-            require(digest(candidate) == digest(record["candidate"]) and record["id"] == candidate["platform_log_id"])
-            require(original["fee_id"] == record["id"])
-            require("claim:" + record["id"] in media and media["claim:" + record["id"]]["owner"] == "media")
-            require(not candidate_claimed(payload, candidate, original["id"]))
-        elif kind == "claim":
-            require(record["owner"] == "media" and digest(record["fee_source"]) == digest(scope["fee_source"]))
-            fee = media["fee:" + record["id"]]
-            require(fee["operation_id"] == record["operation_id"] and record["evidence_hash"] == digest(fee["candidate"]))
-            require(record["export_base64"] == fee["export_base64"])
-            require(record["id"] not in used_requests)
-            used_requests[record["id"]] = record["operation_id"]
-        elif kind == "delivery":
-            raw_image = base64.b64decode(record["bytes_base64"], validate=True)
-            require(len(raw_image) <= 2 * 1048576)
-            query = media["query:" + record["query_id"]]
-            require(query["operation_id"] == record["operation_id"])
-            result = verify_delivery(FrozenImageRequest.from_frozen(query["descriptor"]), query["raw"], raw_image)
-            require(digest(result) == digest(record["delivery"]))
-        elif kind == "reference_derivation":
-            require("reference_profile" in scope)
-            operation = media["operation:" + record["operation_id"]]
-            require(operation["scope_id"] == scope["id"] and record["proof"]["derivation_id"] == record["id"])
-            require(sum(entry == {"id": record["id"], "derivation_hash": record["proof"]["derivation_hash"]}
-                        for entry in operation["reference_derivations"]) == 1)
-        elif kind == "key":
-            require(record["request_hash"] == digest(record["request"]) and record["resource_key"] in media)
-            verb = record["verb"]
-            target = media[record["resource_key"]]
-            require(verb in {"quote", "grant", "submit", "query"})
-            prefix, _, token = record["id"].partition(":")
-            require(prefix == verb and KEY_RE.fullmatch(token) is not None)
-            require(target["kind"] == {"quote": "quote", "grant": "grant", "submit": "operation", "query": "query"}[verb])
-            require(record["task_id"] == target["task_id"] and record["scope_id"] == target["scope_id"])
-            request = record["request"]
-            expected = {"task_id": target["task_id"]}
-            if verb == "grant":
-                expected.update(quote_id=target["quote_id"], disclosure_hash=target["disclosure_hash"], consent=True)
-                require(type(request.get("consent")) is bool)
-            elif verb == "submit":
-                expected.update(grant_id=target["grant_id"], shot_id=target["shot_id"], references=request.get("references"))
-                if OPERATION_FIELD in target:
-                    expected[OPERATION_FIELD] = target[OPERATION_FIELD]
-                require(type(request.get("references")) is list)
-                require(request["references"] == [] or digest(request["references"]) == digest(target["descriptor"]["references"]))
-            elif verb == "query":
-                expected.update(operation_id=target["operation_id"])
-            if verb in {"submit", "query"} and target["descriptor"]["kind"] in {"controlled_image_http_v2", "controlled_image_http_v3"}:
-                expected["runtime_activation_id"] = target["descriptor"]["permit"]["runtime_activation_id"]
-            if verb == "query" and target["descriptor"]["kind"] == "controlled_image_observation_http_v1":
-                expected["observation_activation_id"] = target["descriptor"]["permit"]["observation_activation_id"]
-            require(digest(request) == digest(expected))
+        used_requests = history_validation.record(payload, record, used_requests, _validate_record)
     for record in media.values():
         if record["kind"] in {"quote", "grant", "operation", "query"}:
             target_key = record["kind"] + ":" + record["id"]

@@ -126,10 +126,11 @@ def validate_payload(payload):
 
 
 def validate_state(state):
+    from core.execution.history_validation import reconstruction
     from core.execution.image_policy import _descriptor_snapshot
 
-    with _descriptor_snapshot():
-        return _validate_state(state)
+    with _descriptor_snapshot(), reconstruction(state) as stable:
+        return _validate_state(stable)
 
 
 def _validate_state(state):
@@ -137,6 +138,9 @@ def _validate_state(state):
     require(isinstance(state["frames"], list) and type(state["head_revision"]) is int and state["head_revision"] == len(state["frames"]))
     previous = None
     payload = copy.deepcopy(EMPTY)
+    from core.execution import history_validation
+
+    history_validation.start(payload)
     for revision, frame in enumerate(state["frames"], 1):
         require(set(frame) == {"revision", "saved_at", "previous_hash", "hash", "delta"} and type(frame["revision"]) is int and frame["revision"] == revision)
         require(frame["previous_hash"] == previous and frame["hash"] == digest({key: value for key, value in frame.items() if key != "hash"}))
@@ -146,9 +150,12 @@ def _validate_state(state):
             require(isinstance(records, dict))
             if namespace in {"media", "asset_design"} and namespace not in payload:
                 payload[namespace] = {}
-            payload[namespace].update(copy.deepcopy(records))
+            changed = copy.deepcopy(records)
+            payload[namespace].update(changed)
+            history_validation.apply(namespace, changed)
         validate_roles(payload, before)
         validate_media(payload, before, historical=True)
+        history_validation.commit(payload)
         previous = frame["hash"]
     require(state["head_hash"] == previous)
     validate_payload(payload)
