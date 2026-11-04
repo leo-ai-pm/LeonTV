@@ -3,7 +3,9 @@
 The original four-call anchor remains intact. A separately approved runtime
 authority describes the original allocation and its one-call extension.
 """
+import copy
 import json
+import threading
 import uuid
 from datetime import timedelta
 from typing import Literal
@@ -117,7 +119,64 @@ def _source_identity(permit, bindings):
                 and permit["replacement_of"] != item["source_operation_id"] for item in bindings))
 
 
+def _binding_conditions():
+    """Actual pure decoder/schema settings, never a current authority check."""
+    from PIL import Image, ImageFile
+
+    from core.execution import image_policy, reference_derivation
+
+    return {"source_fields": sorted(reference_derivation.SOURCE_FIELDS),
+            "source_bytes": reference_derivation.MAX_SOURCE_BYTES,
+            "source_pixels": reference_derivation.MAX_PIXELS,
+            "reference_bytes": image_policy.MAX_BYTES,
+            "descriptor_bytes": MAX_DESCRIPTOR_BYTES,
+            "pillow_pixels": Image.MAX_IMAGE_PIXELS,
+            "load_truncated": ImageFile.LOAD_TRUNCATED_IMAGES}
+
+
 def bind_reference_sources(sources, references):
+    """Reuse exact successful bindings in the existing reference read scope.
+
+    Only immutable full input tokens and defensive copies enter its existing
+    32-entry/16-MiB pool. Delivery/operation relationships and current external
+    authority/files remain the caller's independent checks.
+    """
+    from core.execution import reference_derivation as derivation
+
+    try:
+        conditions = _binding_conditions()
+    except Exception:
+        return _bind_reference_sources(sources, references)
+    snapshot = derivation._reference_proof_input({"kind": "source_reference_binding_v1",
+        "sources": sources, "references": references, "conditions": conditions})
+    if snapshot is None:
+        return _bind_reference_sources(sources, references)
+    facts, key, checked, encoder = snapshot
+    if key in facts["inputs"]:
+        return copy.deepcopy(facts["inputs"][key])
+    # Key and computation consume the same complete defensive snapshot.
+    result = _bind_reference_sources(checked["sources"], checked["references"])
+    try:
+        # JSON tokens also distinguish bool/int/float in mutable settings.
+        same_conditions = json.dumps(checked["conditions"], sort_keys=True, allow_nan=False) == json.dumps(
+            _binding_conditions(), sort_keys=True, allow_nan=False)
+        if (facts["active"] and facts["thread"] == threading.get_ident()
+                and derivation._REFERENCE_PROOFS.get() is facts
+                and same_conditions and encoder == derivation.encoder_identity()
+                and len(facts["inputs"]) < derivation._MAX_REFERENCE_PROOFS):
+            size = len(key.encode("utf-8")) + len(json.dumps(result, ensure_ascii=False,
+                allow_nan=False, separators=(",", ":")).encode("utf-8"))
+            if facts["bytes"] + size <= derivation._MAX_REFERENCE_PROOF_BYTES:
+                facts["inputs"][key] = copy.deepcopy(result)
+                facts["bytes"] += size
+    except Exception:
+        # Optional proof bookkeeping cannot turn successful original checks
+        # into a rejection when settings/capacity become unavailable.
+        pass
+    return result
+
+
+def _bind_reference_sources(sources, references):
     """Bind original native deliveries, without copying their bytes into HTTP.
 
     The durable controller must independently match these sources to its own
