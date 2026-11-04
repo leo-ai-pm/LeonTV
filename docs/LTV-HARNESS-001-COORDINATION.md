@@ -1,3 +1,13 @@
+## D55 最终协调 · 历史重建读取诊断 · 2026-11-04
+
+D54源码在db0d971本地提交后，用户继续推进原90同机正常GET≤5秒目标。PRD已预设最多4条HR条件。D55由统筹完成只读基线、profile及前端真实HTTP接入，因本轮既有后端窗口未产出D55文件或采样，未作生产源码修改。PRD最终只接受有限诊断与保护，HR01的≤5秒明确failed/open。
+
+最终仍是入口431后端源，stage395／authority107沿用相同源码manifest映射，未重跑。原90 SHA保持829fbcaf5f6ac3a90dcc625aa063977c1e5cbf46a694f9a988e5360d3b8748e8；单次ASGI9.557861秒、200，全量90帧校验和完整返回值与参考一致、输入字节不变、外联0。Profile15.891602秒有探针成本：deepcopy3.293m次/self1.073/cum2.140；proof `_key`1.271m/.590/1.128；raw_decode14.3k/.479/.537；history `_matches`1.434m/.347/.701；review json_value1.688m/.295/.620。不可加总profile层级/自耗时估计墙钟收益。
+
+未改前端API/controller实际HTTP9.431992／9.638375／9.621940秒，均200/no-store；原90绑定来源是原native task/source，不是当前task API或浏览器UI。D54同源码HTTP此前10.53–11.17秒，但D55没有同轮HTTP配对基线，因此跨轮差异不能归因于优化。原15秒timer未改，最慢观察余5.362秒，≤5s仍失败，不是SLA。只读服务结束／端口关闭、fixture全字节不变、网络0。保护13356文件／36链接、失败现场30、前端116、旧tests／依赖未变。
+
+PRD结果`limited_diagnostic_accepted; HR01_failed_open`，报告与统筹输入的精确副本及SHA在D55 coordinator reviewed reports。原90／47、formal2/4／unknown3、100元／风险83.37（非消费）／cap55及COMP01开放保持；无真实Key／provider／生成／下载／费用／续权／增资／retry。完成画质、人验、完整Harness或Personal Agent未验收。下一组候选仅从同次重建内proof树重复 `_key` 或深拷贝着手；须保护别名与完整关系freshness，并先证明同源原90端到端净收益；未达证据门槛则保持无代码改动。本轮私有根LTV-HISTORY-RECONSTRUCTION-PERFORMANCE-20261104。现进行本地Git收尾，不push。
+
 ## D54 最终协调 · JSON 读取性能 · 2026-11-04
 
 用户“继续”后，原后端在入口 a64b7e3 上实施一组有界编码优化，原 PRD 独立验收 JR01–JR04 有限通过。最终 431 源（3 个既有模块、1 codec、1 新测试），stage395／authority107 对应最终源码。只在一次同步校验里复用精确长字符串的标准库转义结果；完整digest/JSON遍历与解析、strict copy别名和完整历史/current权限/source/file核验照常。109项相关回归通过；初始有界合成compound1通过（scene130.28秒含在内）。16实际ASGI响应解码＋1损坏native503拒绝，task/source/brief/native绑定通过。原90 ASGI入口11.435／11.446秒，最终10.565／10.644／10.755秒，有限本机观察；profile18.082秒含10,614,999次Python回调，开销限制已记录。
