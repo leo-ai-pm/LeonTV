@@ -575,6 +575,18 @@ MODEL_CONFIG['models'].update({
                          'ratios': ['16:9', '9:16', '1:1', '4:3', '3:4'],
                          'api_contract_verified': False},
     },
+    'gemini-3.5-flash': {
+        'name': 'Gemini 3.5 Flash（土豆 API）', 'provider': 'tudou', 'family': 'gemini',
+        'type': ['llm', 'vlm'],
+        'capabilities': {'ability_type': 'vision_language',
+                         'ability_types': ['vision_language', 'image_understanding', 'text_generation'],
+                         'adapter_ability_types': ['vision_language', 'image_understanding', 'text_generation'],
+                         'input_modalities': ['text', 'image'],
+                         'adapter_input_modalities': ['text', 'image'],
+                         'api_contract_verified': False,
+                         'verification_note': '2026-11-05 中转 /v1/models 标注 openai 端点；'
+                                              '当日文本通道返回 503 system cpu overloaded，待通道恢复后验收'},
+    },
     'wan3.0': {
         'name': 'Wan 3.0（土豆 API）', 'provider': 'tudou', 'family': 'wan',
         'type': ['video'], 'concurrency': 3,
@@ -618,6 +630,12 @@ def get_max_concurrency(model: str, enable_concurrency: bool = False) -> int:
     if not enable_concurrency:
         return 1
     return int(get_model_config(model).get("concurrency", 3))
+
+
+def model_provider(model: str) -> str:
+    """精确按目录返回 provider；不做子串猜测，避免把同名模型路由到错误后端。"""
+    metadata = MODEL_CONFIG.get("models", {}).get(model) or {}
+    return str(metadata.get("provider") or "")
 
 
 def get_models_by_type(model_type: str) -> list[dict[str, Any]]:

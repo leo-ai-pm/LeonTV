@@ -22,6 +22,7 @@ except ImportError:
     from vlm_dashscope import QwenVLClient
 
 from config import Config
+from models.config_model import model_provider
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class LLM:
         self._gpt_base_url = gpt_base_url or Config.OPENAI_BASE_URL
         self._gpt_api_key = gpt_api_key or Config.OPENAI_API_KEY
         self._deepseek_base_url = deepseek_base_url or Config.DEEPSEEK_BASE_URL
+        self._tudou_client = None
         self._deepseek_api_key = deepseek_api_key or Config.DEEPSEEK_API_KEY
         self._dashscope_api_key = dashscope_api_key or Config.DASHSCOPE_API_KEY
 
@@ -91,6 +93,13 @@ class LLM:
             
         return text.translate(translation_table)
 
+    @property
+    def tudou_client(self):
+        if self._tudou_client is None:
+            from models.llm_tudou import TudouChatClient
+            self._tudou_client = TudouChatClient()
+        return self._tudou_client
+
     def query(self, prompt, image_urls=[], model="qwen3.6-max-preview", safe_content=True, task_id=None, web_search=False, temperature=None):
         """
         Query the LLM with a prompt and optional image URLs.
@@ -124,7 +133,10 @@ class LLM:
         generation_params = {"temperature": temperature} if temperature is not None else {}
         result = ""
         model_lower = model.lower()
-        if model_lower.startswith("gemini"):
+        if model_provider(model) == "tudou":
+            result = self.tudou_client.chat(prompt, images=image_urls or None, model=model,
+                                            temperature=temperature)
+        elif model_lower.startswith("gemini"):
             result = self.gemini_client.query(prompt, image_urls=image_urls, model=model, **generation_params)
         elif "gpt" in model_lower:
             # OpenAI series models

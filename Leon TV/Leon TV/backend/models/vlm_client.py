@@ -11,6 +11,7 @@ import os
 from typing import List, Optional
 
 from config import Config
+from models.config_model import model_provider
 
 try:
     from models.vlm_dashscope import QwenVLClient
@@ -45,6 +46,7 @@ class VLM:
         self._gpt_base_url = gpt_base_url
         self._proxy = Config.provider_proxy("openai") if proxy is None else proxy
 
+        self._tudou_client = None
         self._dashscope_client = None
         self._gemini_client = None
         self._gpt_client = None
@@ -77,6 +79,13 @@ class VLM:
             )
         return self._gpt_client
 
+    @property
+    def tudou_client(self):
+        if self._tudou_client is None:
+            from models.llm_tudou import TudouChatClient
+            self._tudou_client = TudouChatClient()
+        return self._tudou_client
+
     def query(self,
              prompt: str,
              image_paths: Optional[List[str]] = None,
@@ -99,6 +108,8 @@ class VLM:
 
         # Determine backend provider
         model_lower = model.lower()
+        if model_provider(model) == "tudou":
+            return self.tudou_client.chat(prompt, images=image_paths or None, model=model)
         is_gemini = "gemini" in model_lower
         is_gpt = "gpt" in model_lower
 
