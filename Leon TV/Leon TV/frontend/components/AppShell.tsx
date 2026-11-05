@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { CheckCircle2, ChevronLeft, ChevronRight, Clapperboard, Clock, Hexagon, Home, LayoutDashboard, Loader2, Repeat2, Settings, Trash2, UserRound } from 'lucide-react';
+import { Bot, CheckCircle2, ChevronLeft, ChevronRight, Clapperboard, Clock, Hexagon, Home, LayoutDashboard, Loader2, Repeat2, Settings, Trash2, UserRound } from 'lucide-react';
 import clsx from 'clsx';
 import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { clearTempCache, fetchPipelineTasks, fetchSandboxTasks, fetchSessions, type PipelineTask, type SandboxTask } from '@/lib/workflowApi';
@@ -14,6 +14,7 @@ import { APP_PREFERENCE_KEYS, migrateAppPreferences, readAppPreference } from '@
 const NAV_ITEMS = [
   { href: '/creator', label: '创作简报', icon: Home },
   { href: '/studio', label: '项目工作台', icon: LayoutDashboard },
+  { href: '/workspace', label: 'Agent 工作台', icon: Bot },
   { href: '/workflow', label: '六阶段创作', icon: Clapperboard },
   { href: '/sandbox', label: '临时工作台', icon: Hexagon },
   { href: '/pipelines/standard', label: '文艺短视频', icon: Clapperboard },
@@ -363,6 +364,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   if (pathname === '/creator' || pathname.startsWith('/creator/')) return <>{children}</>;
+  // 三栏工作台自带项目栏与 Agent 面板，不再叠一层全局侧边栏。
+  if (pathname === '/workspace' || pathname.startsWith('/workspace/')) return <>{children}</>;
 
   return (
     <div

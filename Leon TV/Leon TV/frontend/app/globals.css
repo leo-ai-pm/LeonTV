@@ -1109,3 +1109,177 @@ body {
 .creator-media .creator-secondary[aria-disabled="true"] { opacity: .55; cursor: wait; }
 .creator-media .creator-secondary[aria-disabled="true"]:focus-visible { opacity: 1; }
 @media (max-width: 500px) { .creator-execution .creator-record dd { text-align: left; } .creator-execution select { font-size: 16px; } .creator-execution-consent { padding: 8px; gap: 8px; } }
+
+/* ── 三栏工作台外壳（左项目栏 / 中画布 / 右 Agent）──────────────────────── */
+.ws-shell {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr) 340px;
+  height: 100dvh;
+  overflow: hidden;
+  background: #f4f6fa;
+  color: #202945;
+}
+.ws-shell[data-agent='closed'] { grid-template-columns: 236px minmax(0, 1fr) 0; }
+.ws-shell[data-agent='closed'] .ws-agent-column { border-left: 0; }
+
+.ws-rail {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid #e4e8f0;
+  background: #fff;
+}
+.ws-rail-brand { display: flex; height: 70px; flex: 0 0 70px; align-items: center; padding: 0 16px; border-bottom: 1px solid #eef1f6; }
+.ws-rail-brand-inner { display: flex; align-items: center; gap: 8px; color: #1d2441; font-size: 15px; font-weight: 650; text-decoration: none; }
+
+.ws-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 12px 14px 6px;
+  height: 38px;
+  border: 0;
+  border-radius: 9px;
+  background: #1d2441;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ws-new:disabled { opacity: .6; cursor: progress; }
+
+.ws-search { display: flex; align-items: center; gap: 7px; margin: 6px 14px 10px; padding: 0 10px; height: 32px; border: 1px solid #e6e9ef; border-radius: 8px; color: #98a2b4; }
+.ws-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font-size: 12px; color: #303c56; }
+
+.ws-rail-label { padding: 6px 16px 4px; color: #8b94a6; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.ws-project-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 2px 8px 10px; }
+
+.ws-project { display: flex; width: 100%; flex-direction: column; gap: 2px; padding: 8px 9px; border: 1px solid transparent; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
+.ws-project:hover { background: #f5f7fb; }
+.ws-project[aria-current='page'] { border-color: #d7e2f5; background: #eef3fc; }
+.ws-project-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2b3550; font-size: 12.5px; font-weight: 550; }
+.ws-project-meta { color: #97a1b4; font-size: 10.5px; }
+
+.ws-rail-note { display: flex; align-items: center; gap: 6px; padding: 8px 10px; color: #98a2b4; font-size: 11.5px; }
+.ws-rail-error { color: #c2413d; }
+
+.ws-rail-footer { display: flex; flex-direction: column; gap: 2px; padding: 10px 10px 14px; border-top: 1px solid #eef1f6; }
+.ws-rail-link { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; color: #66718a; font-size: 12px; text-decoration: none; }
+.ws-rail-link:hover { background: #f5f7fb; color: #1d2441; }
+
+.ws-canvas { position: relative; min-width: 0; overflow: hidden; }
+.ws-canvas-empty { display: flex; height: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #7a8599; }
+.ws-canvas-empty h1 { color: #2b3550; font-size: 18px; font-weight: 650; }
+.ws-canvas-empty p { font-size: 13px; }
+
+.ws-agent-column { position: relative; display: flex; min-width: 0; flex-direction: column; border-left: 1px solid #e4e8f0; background: #fff; }
+.ws-agent-toggle { position: absolute; top: 84px; left: -14px; z-index: 6; display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #e4e8f0; border-radius: 50%; background: #fff; color: #76829a; box-shadow: 0 2px 8px rgba(32, 41, 69, .1); cursor: pointer; }
+.ws-agent-toggle:hover { color: #1d2441; }
+
+.ws-agent { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+.ws-agent-head { display: flex; align-items: center; gap: 9px; height: 70px; flex: 0 0 70px; padding: 0 16px; border-bottom: 1px solid #eef1f6; }
+.ws-agent-avatar { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: #eef3fc; color: #3b5bdb; }
+.ws-agent-head strong { display: block; color: #1d2441; font-size: 13px; font-weight: 650; }
+.ws-agent-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #98a2b4; font-size: 11px; }
+.ws-agent-badge { margin-left: auto; flex: 0 0 auto; padding: 2px 7px; border-radius: 999px; background: #fff4e6; color: #b06a12; font-size: 10px; font-weight: 600; }
+
+.ws-agent-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 18px 16px; }
+.ws-agent-empty { display: flex; flex-direction: column; gap: 10px; }
+.ws-agent-empty-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: #f1f4fa; color: #4c6693; }
+.ws-agent-empty p { color: #303c56; font-size: 13px; line-height: 1.6; }
+.ws-agent-muted { color: #7a8599 !important; font-size: 12.5px !important; }
+
+.ws-agent-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.ws-agent-actions li { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid #eef1f6; border-radius: 9px; background: #fbfcfe; }
+.ws-agent-action-icon { display: grid; width: 26px; height: 26px; flex: 0 0 auto; place-items: center; border-radius: 7px; background: #eef3fc; color: #3b5bdb; }
+.ws-agent-actions strong { display: block; color: #303c56; font-size: 12px; font-weight: 600; }
+.ws-agent-actions small { color: #98a2b4; font-size: 10.5px; }
+
+.ws-agent-composer { flex: 0 0 auto; border-top: 1px solid #eef1f6; padding: 12px 14px 14px; }
+.ws-agent-composer textarea { width: 100%; resize: none; border: 1px solid #e6e9ef; border-radius: 10px; padding: 9px 11px; color: #303c56; font-size: 12.5px; line-height: 1.55; outline: none; }
+.ws-agent-composer textarea:focus { border-color: #c9d6ee; box-shadow: 0 0 0 3px rgba(59, 91, 219, .08); }
+.ws-agent-toolbar { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.ws-agent-attach, .ws-agent-send { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; border-radius: 8px; font-size: 11.5px; font-weight: 600; }
+.ws-agent-attach { border: 1px solid #e6e9ef; background: #fff; color: #8b94a6; }
+.ws-agent-send { border: 0; background: #1d2441; color: #fff; }
+.ws-agent-send:disabled, .ws-agent-attach:disabled { opacity: .45; cursor: not-allowed; }
+.ws-agent-note { margin-top: 7px; color: #9aa4b6; font-size: 10.5px; }
+
+@media (max-width: 1280px) {
+  .ws-shell { grid-template-columns: 208px minmax(0, 1fr) 300px; }
+}
+
+/* 工作台里的画布：只保留画布本身，工具箱与属性面板由三栏外壳承担。 */
+.studio-editor[data-variant='workspace'] .studio-editor-main { grid-template-columns: minmax(0, 1fr); }
+
+/* Agent 面板里的画布操作与节点编辑 */
+.ws-section { display: flex; flex-direction: column; gap: 8px; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid #eef1f6; }
+.ws-section:last-child { border-bottom: 0; margin-bottom: 0; }
+.ws-section-head { display: flex; align-items: baseline; justify-content: space-between; }
+.ws-section-head span { color: #303c56; font-size: 12px; font-weight: 650; }
+.ws-section-head small { color: #9aa4b6; font-size: 10.5px; }
+
+.ws-node-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ws-node-add { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid #e6e9ef; border-radius: 8px; background: #fbfcfe; color: #48536b; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.ws-node-add:hover:not(:disabled) { border-color: #c9d6ee; background: #f3f7ff; color: #1d2441; }
+.ws-node-add:disabled { opacity: .5; cursor: not-allowed; }
+
+.ws-node-export { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; border: 0; border-radius: 8px; background: #1d2441; color: #fff; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.ws-node-export:disabled { opacity: .5; cursor: not-allowed; }
+
+.ws-node-card { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid #e6e9ef; border-radius: 9px; background: #fbfcfe; }
+.ws-field { display: flex; flex-direction: column; gap: 4px; }
+.ws-field span { color: #8b94a6; font-size: 10.5px; font-weight: 600; }
+.ws-field input, .ws-field textarea { width: 100%; border: 1px solid #e6e9ef; border-radius: 7px; padding: 6px 8px; color: #303c56; font-size: 12px; line-height: 1.5; outline: none; background: #fff; resize: vertical; }
+.ws-field input:focus, .ws-field textarea:focus { border-color: #c9d6ee; }
+
+.ws-node-actions { display: flex; align-items: center; gap: 8px; }
+.ws-node-run { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: #3b5bdb; color: #fff; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.ws-node-delete { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px solid #f0d6d6; border-radius: 7px; background: #fff; color: #b23b3b; font-size: 11.5px; font-weight: 600; cursor: pointer; }
+.ws-node-delete:hover { background: #fdf2f2; }
+.ws-section-chat { margin-top: 2px; }
+
+/* Agent 对话消息 */
+.ws-msg { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.ws-msg[data-role='user'] { align-items: flex-end; }
+.ws-msg-bubble { max-width: 100%; padding: 8px 10px; border-radius: 10px; background: #f1f4fa; color: #2b3550; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.ws-msg[data-role='user'] .ws-msg-bubble { background: #1d2441; color: #fff; }
+.ws-msg-pending { display: inline-flex; align-items: center; gap: 6px; color: #66718a; }
+.ws-msg-actions { display: flex; flex-direction: column; gap: 3px; padding-left: 2px; }
+.ws-msg-actions li { color: #3a7d6a; font-size: 11px; }
+.ws-agent-error { margin-bottom: 12px; padding: 8px 10px; border: 1px solid #f2d5d5; border-radius: 8px; background: #fdf5f5; color: #b23b3b; font-size: 11.5px; line-height: 1.55; }
+.ws-section-tools { margin-top: 4px; }
+.ws-agent-note-inline { color: #9aa4b6; font-size: 10.5px; }
+
+/* 全局任务队列 */
+.ws-taskbar { position: absolute; top: 84px; right: 16px; z-index: 8; width: 340px; border: 1px solid #e4e8f0; border-radius: 10px; background: #fff; box-shadow: 0 8px 24px rgba(32, 41, 69, .1); overflow: hidden; }
+.ws-taskbar[data-open='true'] { width: 460px; }
+.ws-taskbar-head { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 10px; }
+.ws-taskbar-title { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: #303c56; font-size: 11.5px; font-weight: 650; cursor: pointer; }
+.ws-taskbar-counts { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: #8b94a6; font-size: 10.5px; }
+.ws-taskbar-running { display: inline-flex; align-items: center; gap: 3px; color: #3b5bdb; }
+.ws-taskbar-done { display: inline-flex; align-items: center; gap: 3px; }
+.ws-taskbar-refresh, .ws-taskbar-toggle { display: grid; width: 22px; height: 22px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #8b94a6; cursor: pointer; }
+.ws-taskbar-refresh:hover, .ws-taskbar-toggle:hover { background: #f1f4fa; color: #303c56; }
+.ws-taskbar-body { max-height: 280px; overflow-y: auto; border-top: 1px solid #eef1f6; padding: 6px; }
+.ws-taskbar-note { display: flex; align-items: center; gap: 6px; padding: 8px; color: #98a2b4; font-size: 11px; }
+.ws-taskbar-error { color: #b23b3b; }
+.ws-task-list { display: flex; flex-direction: column; gap: 2px; }
+.ws-task { display: flex; align-items: center; gap: 7px; padding: 6px 7px; border-radius: 7px; font-size: 11px; color: #66718a; }
+.ws-task:hover { background: #f7f9fc; }
+.ws-task-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #c9d0dc; }
+.ws-task[data-state='running'] .ws-task-dot { background: #3b5bdb; box-shadow: 0 0 0 3px rgba(59, 91, 219, .12); }
+.ws-task[data-state='completed'] .ws-task-dot { background: #52a37a; }
+.ws-task-tool { flex: 0 0 auto; color: #303c56; font-weight: 600; }
+.ws-task-model { flex: 0 0 auto; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #98a2b4; }
+.ws-task-summary { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-task-time { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; color: #a3acbc; }
+.ws-task-state { flex: 0 0 auto; color: #8b94a6; }
+
+.ws-pipeline-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ws-pipeline { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 30px; padding: 0 8px; border: 1px solid #d7e2f5; border-radius: 8px; background: #f4f8ff; color: #3b5bdb; font-size: 11px; font-weight: 600; cursor: pointer; }
+.ws-pipeline:hover:not(:disabled) { background: #e8f0ff; }
+.ws-pipeline-all { border-color: #1d2441; background: #25305a; color: #fff; }
+.ws-pipeline-all:hover:not(:disabled) { background: #1d2441; }
+.ws-pipeline:disabled { opacity: .5; cursor: not-allowed; }
