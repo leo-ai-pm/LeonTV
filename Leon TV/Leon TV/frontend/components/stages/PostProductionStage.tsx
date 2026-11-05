@@ -10,6 +10,10 @@ import StageActions from './StageActions';
 export default function PostProductionStage({ state, onConfirm, onRegenerate, isRunning, hasPendingItems, hasNextStageStarted, artifacts, scriptArtifact }: StageViewProps) {
   // 提取最终视频列表
   const finalVideos = state.artifact?.final_videos;
+  const isPartial = Boolean(state.artifact?.partial);
+  const missingClips: string[] = Array.isArray(state.artifact?.missing_clips)
+    ? (state.artifact?.missing_clips as unknown[]).map(String)
+    : [];
   
   // 兼容旧格式及其变形
   const legacyVideo = state.artifact?.final_video;
@@ -40,6 +44,14 @@ export default function PostProductionStage({ state, onConfirm, onRegenerate, is
       <div className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-6">
         <h2 className="text-lg font-semibold text-gray-800 mb-1">后期剪辑</h2>
         <p className="text-sm text-gray-500 mb-6">按剧集拼接视频，生成各集独立成片</p>
+
+        {isPartial && (
+          <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <strong>部分出片</strong>：以下镜头没有可用片段，成片只包含已完成部分。
+            <span className="ml-1 font-mono text-xs">{missingClips.join('、') || '未知'}</span>
+            <p className="mt-1 text-xs text-amber-700">补齐缺失镜头后重新运行本阶段即可生成完整成片。</p>
+          </div>
+        )}
 
         {/* 运行中 */}
         {state.status === 'running' && (

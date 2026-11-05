@@ -20,6 +20,17 @@ from .base_agent import AgentInterface
 logger = logging.getLogger(__name__)
 
 
+def plan_assembly_selection(clips_list, selected_clips=None):
+    """把片段列表分成可用与缺失两组；缺失不再阻止出片。"""
+    import os as _os
+
+    pairs = ([(clip.get("id", "unknown"), clip.get("selected")) for clip in clips_list]
+             if clips_list else list((selected_clips or {}).items()))
+    usable = [(identifier, path) for identifier, path in pairs if path and _os.path.isfile(path)]
+    missing = [identifier for identifier, path in pairs if not path or not _os.path.isfile(path)]
+    return usable, missing
+
+
 class VideoEditorAgent(AgentInterface):
     """后期制作：拼接用户选择的视频片段 → 最终成片"""
 
@@ -51,10 +62,10 @@ class VideoEditorAgent(AgentInterface):
         self._report_progress("后期制作", "准备视频片段...", 5)
 
         def run():
-            selected = [(clip.get("id", "unknown"), clip.get("selected")) for clip in clips_list] if clips_list else list(input_data.get("selected_clips", {}).items())
-            missing = [identifier for identifier, path in selected if not path or not os.path.isfile(path)]
+            # 部分出片：供应商失败或片段缺失时先交付已完成部分，并把缺镜明确记录下来。
+            _, missing = plan_assembly_selection(clips_list, input_data.get("selected_clips", {}))
             if missing:
-                raise FileNotFoundError(f"缺少已选视频片段：{', '.join(missing)}")
+                logger.warning("[%s] Partial assembly, skipping missing clips: %s", sid, ", ".join(missing))
             video_dir = str(contained_storage_path(settings.RESULT_DIR, "video", str(sid)))
             os.makedirs(video_dir, exist_ok=True)
             output_dir = os.path.join(video_dir, 'output')
@@ -142,18 +153,27 @@ class VideoEditorAgent(AgentInterface):
                     "name": ep_title
                 })
 
-            return final_videos
+            return final_videos, missing
 
         loop = asyncio.get_running_loop()
-        final_results = await loop.run_in_executor(None, run)
+        final_results, missing_clips = await loop.run_in_executor(None, run)
 
-        self._report_progress("后期制作", "成片完成", 100)
+        if missing_clips:
+            self._report_progress(
+                "后期制作",
+                f"成片完成（缺 {len(missing_clips)} 镜：{', '.join(missing_clips)}）",
+                100,
+            )
+        else:
+            self._report_progress("后期制作", "成片完成", 100)
 
         return {
             "payload": {
                 "session_id": sid,
                 "final_videos": final_results,
                 "final_video": final_results[0]["path"] if final_results else "",
+                "partial": bool(missing_clips),
+                "missing_clips": missing_clips,
             },
             "stage_completed": True,
         }
