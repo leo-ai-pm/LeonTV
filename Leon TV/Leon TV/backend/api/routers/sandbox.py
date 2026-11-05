@@ -51,6 +51,29 @@ def _write_job(job: dict) -> None:
     os.replace(temporary, path)
 
 
+async def _resume_sandbox_image(request: SandboxJobRequest, resume_receipt: str) -> dict:
+    """继续查询已受理的图片任务；绝不重新提交生成。"""
+    from models.tudou_client import TudouClient
+
+    path = await run_in_threadpool(TudouClient().resume_image, resume_receipt)
+    images = [path] if isinstance(path, str) and path else []
+    if not images:
+        raise ValueError("原图片任务未返回可用结果")
+    record_id = _add_record(
+        tool="t2i",
+        model=request.model,
+        input_data={"prompt": request.prompt, "ratio": request.ratio, "resumed": True},
+        output_data={"images": images},
+        files=images,
+    )
+    return {
+        "success": True,
+        "result": _converted_result_list(images),
+        "record_id": record_id,
+        "resumed": True,
+    }
+
+
 async def _run_job(request: SandboxJobRequest, resume_receipt: str | None = None) -> None:
     try:
         if request.tool == "video":
@@ -58,8 +81,10 @@ async def _run_job(request: SandboxJobRequest, resume_receipt: str | None = None
                                                   job_id=request.job_id, resume_receipt=resume_receipt)
         elif request.tool == "i2i":
             result = await sandbox_i2i(SandboxI2IRequest(**request.model_dump()))
+        elif resume_receipt:
+            result = await _resume_sandbox_image(request, resume_receipt)
         else:
-            result = await sandbox_t2i(SandboxT2IRequest(**request.model_dump()))
+            result = await sandbox_t2i(SandboxT2IRequest(**request.model_dump()), job_id=request.job_id)
     except Exception as exc:
         logger.exception("Sandbox async job failed: %s", request.job_id)
         result = {"success": False, "error": str(getattr(exc, "detail", exc))}
@@ -113,7 +138,7 @@ async def sandbox_get_job(job_id: str):
 
 @router.post("/api/sandbox/jobs/{job_id}/resume", status_code=202)
 async def sandbox_resume_job(job_id: str):
-    """Resume a persisted Tudou video task without submitting another generation."""
+    """Resume a persisted Tudou image/video task without submitting another generation."""
     await sandbox_get_job(job_id)
     with SANDBOX_LOCK:
         job = json.loads((SANDBOX_JOBS_DIR / f"{job_id}.json").read_text(encoding="utf-8"))
@@ -124,18 +149,28 @@ async def sandbox_resume_job(job_id: str):
         receipt_path = job.get("provider_receipt_path")
         if not receipt_path:
             raise HTTPException(409, "原任务缺少可恢复的提供商回执，请先核查提供商任务记录。")
+        original = SandboxJobRequest(**job["input"])
+        image_root = (Path(settings.CODE_DIR) / "result" / "image_client").resolve()
+        if original.tool == "video":
+            roots = [SANDBOX_DIR]
+            output_root = (Path(SANDBOX_DIR) / "videos").resolve()
+        elif original.tool == "t2i":
+            roots = [str(image_root)]
+            output_root = image_root
+        else:
+            raise HTTPException(409, "只有土豆图片或视频任务支持恢复查询。")
         try:
-            resolved = resolve_media_reference(receipt_path, [SANDBOX_DIR], allow_remote_urls=False)
+            resolved = resolve_media_reference(receipt_path, roots, allow_remote_urls=False)
         except ValueError as exc:
             raise HTTPException(409, "原任务回执不存在或路径无效。") from exc
         receipt = json.loads(Path(resolved).read_text(encoding="utf-8"))
-        original = SandboxJobRequest(**job["input"])
-        from models.video_client import VideoClient
-        expected = {"model": original.model, "prompt": original.prompt,
-                    "duration": original.duration, "aspect_ratio": original.ratio,
-                    "resolution": VideoClient._normalize_seedance_resolution(original.resolution)}
-        if any((receipt.get("request") or {}).get(key) != value for key, value in expected.items()):
-            raise HTTPException(409, "原任务回执与已保存的生成参数不匹配，请先核查任务记录。")
+        if original.tool == "video":
+            from models.video_client import VideoClient
+            expected = {"model": original.model, "prompt": original.prompt,
+                        "duration": original.duration, "aspect_ratio": original.ratio,
+                        "resolution": VideoClient._normalize_seedance_resolution(original.resolution)}
+            if any((receipt.get("request") or {}).get(key) != value for key, value in expected.items()):
+                raise HTTPException(409, "原任务回执与已保存的生成参数不匹配，请先核查任务记录。")
         known_task = (job.get("output") or {}).get("provider_task") or job.get("provider_task") or {}
         # The provider may have accepted the task just before an atomic receipt write failed.
         # Recover only an ID already recorded by this job, never one sent by a caller.
@@ -145,7 +180,7 @@ async def sandbox_resume_job(job_id: str):
         if receipt.get("provider") != "tudou" or not receipt.get("task_id"):
             raise HTTPException(409, "原提交是否被受理尚未确认，请先核查土豆任务记录，避免重复扣费。")
         save_path = str(Path(receipt["save_path"]).resolve())
-        if not Path(save_path).is_relative_to((Path(SANDBOX_DIR) / "videos").resolve()):
+        if not Path(save_path).is_relative_to(output_root):
             raise HTTPException(409, "原任务输出路径无效。")
         if Path(resolved) != Path(f"{save_path}.tudou-task.json"):
             raise HTTPException(409, "原任务回执与输出路径不匹配。")
@@ -156,6 +191,43 @@ async def sandbox_resume_job(job_id: str):
         SANDBOX_JOB_TASKS[job_id] = asyncio.create_task(
             _run_job(original, resume_receipt=resolved))
     return {"id": job_id, "status": "running"}
+
+
+def _image_receipt_for_task(task_id: str) -> str | None:
+    """按任务 ID 在主图片目录中找到原回执，用于「已受理但轮询中断」的恢复。"""
+    directory = Path(settings.CODE_DIR) / "result" / "image_client"
+    if not directory.is_dir():
+        return None
+    for path in sorted(directory.glob("*.tudou-task.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if data.get("task_id") == task_id:
+            return str(path)
+    return None
+
+
+def _persist_image_task(job_id: str | None, task_id: str, error) -> None:
+    """把图片任务的回执路径写进作业，供后续 resume 使用。"""
+    if not job_id:
+        return
+    receipt = _image_receipt_for_task(str(task_id))
+    if not receipt:
+        return
+    with SANDBOX_LOCK:
+        path = SANDBOX_JOBS_DIR / f"{job_id}.json"
+        if not path.is_file():
+            return
+        job = json.loads(path.read_text(encoding="utf-8"))
+        job["provider_receipt_path"] = receipt
+        job["provider_task"] = {
+            "provider": "tudou",
+            "task_id": str(task_id),
+            "status": getattr(error, "status", "unknown"),
+            "error_code": getattr(error, "code", "query_failed"),
+        }
+        _write_job(job)
 
 
 def _persist_video_task(job_id: str | None, receipt_path: str, context: dict | None = None) -> None:
@@ -473,7 +545,7 @@ async def sandbox_vlm(req: SandboxVLMRequest):
 
 
 @router.post("/api/sandbox/t2i")
-async def sandbox_t2i(req: SandboxT2IRequest):
+async def sandbox_t2i(req: SandboxT2IRequest, job_id: str | None = None):
     """临时工作台 - 文生图"""
     from models.image_client import ImageClient
     client = ImageClient()
@@ -518,7 +590,19 @@ async def sandbox_t2i(req: SandboxT2IRequest):
         }
     except Exception as e:
         logger.exception("Sandbox T2I failed: model=%s", req.model)
-        return {"success": False, "error": str(e)}
+        output = {"success": False, "error": str(e)}
+        # 上游已受理但轮询中断：保留任务身份，允许按原任务恢复，避免重复扣费。
+        provider_task_id = getattr(e, "task_id", None)
+        if provider_task_id:
+            _persist_image_task(job_id, provider_task_id, e)
+            output["provider_task"] = {
+                "provider": "tudou",
+                "task_id": str(provider_task_id),
+                "status": getattr(e, "status", "unknown"),
+                "error_code": getattr(e, "code", "query_failed"),
+            }
+            output["query_pending"] = True
+        return output
     finally:
         _finish_active_task(task_id)
 

@@ -52,6 +52,26 @@ class DeepSeek:
             return default
 
     @staticmethod
+    def _is_retryable(error) -> bool:
+        """只对超时、限流与服务端错误重试；鉴权/参数错误立即失败。"""
+        status = getattr(error, "status_code", None)
+        if isinstance(status, int):
+            return status in (408, 409, 429) or status >= 500
+        try:
+            import httpx
+            import openai
+        except ImportError:
+            return False
+        return isinstance(error, (
+            openai.APITimeoutError,
+            openai.APIConnectionError,
+            openai.RateLimitError,
+            openai.InternalServerError,
+            httpx.TimeoutException,
+            httpx.TransportError,
+        ))
+
+    @staticmethod
     def _usage_value(usage, key: str, default=0):
         if usage is None:
             return default
@@ -125,10 +145,14 @@ class DeepSeek:
         if not model:
             model = "deepseek-chat"
 
+        if not self.api_key:
+            raise RuntimeError("未配置 DeepSeek API Key：请在设置页填写 api_providers.deepseek.api_key 后重试。")
+
         messages = [{"role": "system", "content": "You are a helpful assistant."}]
         messages.append({"role": "user", "content": prompt})
 
         attempts = 0
+        last_error = "未知错误"
         while attempts < self.max_attempts:
             try:
                 # Build request parameters
@@ -151,6 +175,11 @@ class DeepSeek:
                     self._log_empty_response(model, attempts + 1, response)
                     time.sleep(2)
             except Exception as e:
+                # 鉴权失败、请求非法、模型不存在等不可恢复错误不重试，直接暴露原因。
+                if not self._is_retryable(e):
+                    logger.error("DeepSeek request failed without retry. model=%s error=%s", model, e)
+                    raise RuntimeError(f"DeepSeek 请求失败：{e}") from e
+                last_error = e
                 logger.warning(
                     "DeepSeek request failed; retrying. model=%s attempt=%s/%s timeout=%ss error=%s",
                     model,
@@ -161,8 +190,8 @@ class DeepSeek:
                 )
                 time.sleep(5)
             attempts += 1
-                
-        raise Exception("Max attempts reached, failed to get a response from DeepSeek.")
+
+        raise RuntimeError(f"DeepSeek 请求多次失败：{last_error}")
 
 
 if __name__ == "__main__":

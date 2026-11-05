@@ -522,7 +522,9 @@ MODEL_CONFIG: dict[str, Any] = {'models': {'deepseek-chat': {'name': 'DeepSeek C
                                                    'api_contract_verified': False}}}}
 
 # Tudou's public async API contract is documented, but requires a live-key test
-# before we can mark the adapter as verified in production.
+# before we can mark the adapter as verified in production. Only seedance-2.0 has
+# that evidence today (2026-11-05 one-shot run); the others stay unverified, and
+# wan3.0 currently answers 502 from the provider gateway.
 MODEL_CONFIG['models'].update({
     'minimax-h3': {
         'name': 'MiniMax H3（土豆 API）', 'provider': 'tudou', 'family': 'minimax',
@@ -557,7 +559,11 @@ MODEL_CONFIG['models'].update({
                          'input_modalities': ['text', 'image'], 'adapter_input_modalities': ['text', 'image'],
                          'duration': {'min': 4, 'max': 15, 'integer': True, 'verified': False},
                          'resolutions': ['720P'], 'ratios': ['16:9', '9:16', '1:1'],
-                         'api_contract_verified': False},
+                         'api_contract_verified': True,
+                         'verification_note': '2026-11-05 单镜实测：first_frame_i2v，9:16／5s／720P，'
+                                              'task_kJ9OeOzyjvokW9EzGYGpHGonFlzScrqt，'
+                                              '回执 completed 且落盘 H.264 720x1280 5.017s；'
+                                              '时长上下限与其它画幅未逐项验收'},
     },
     'gpt-image-2-all': {
         'name': 'GPT Image 2（土豆 API）', 'provider': 'tudou', 'family': 'gpt-image',
@@ -578,7 +584,9 @@ MODEL_CONFIG['models'].update({
                          'input_modalities': ['text', 'image'], 'adapter_input_modalities': ['text', 'image'],
                          'duration': {'min': 2, 'max': 30, 'integer': True, 'verified': False},
                          'resolutions': ['720P', '1080P'], 'ratios': ['16:9', '9:16', '1:1', '4:3', '3:4'],
-                         'api_contract_verified': False},
+                         'api_contract_verified': False,
+                         'verification_note': '2026-11-05 两次提交均返回 HTTP 502 Bad Gateway，'
+                                              '通道不可用；恢复后需重新验收再标记'},
     },
 })
 

@@ -66,13 +66,42 @@ class TudouClient:
         logger.info("Tudou submitted task_id=%s model=%s", task_id, payload.get("model"))
         return str(task_id)
 
+    @staticmethod
+    def _is_transient(error: Exception) -> bool:
+        """网络抖动、超时、限流与 5xx 可重试；4xx 与业务错误不重试。"""
+        if isinstance(error, (requests.exceptions.ConnectionError,
+                              requests.exceptions.Timeout,
+                              requests.exceptions.ChunkedEncodingError)):
+            return True
+        response = getattr(error, "response", None)
+        status = getattr(response, "status_code", None)
+        if isinstance(status, int):
+            return status in (408, 409, 429) or status >= 500
+        return False
+
+    def _get(self, path: str, *, attempts: int = 5, base_delay: float = 2.0,
+             timeout: int = 60) -> dict:
+        """带退避的 GET：只重试瞬时错误，绝不在这层重新提交任务。"""
+        last: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                response = requests.get(f"{self.base_url}{path}", headers=self.headers,
+                                        timeout=timeout, proxies=Config.requests_proxies("tudou"))
+                response.raise_for_status()
+                return response.json()
+            except Exception as exc:  # noqa: BLE001 - 分类后决定是否重试
+                if not self._is_transient(exc):
+                    raise
+                last = exc
+                logger.warning("Tudou GET %s failed (attempt %s/%s): %s", path, attempt + 1, attempts, exc)
+                if attempt + 1 < attempts:
+                    time.sleep(min(base_delay * (2 ** attempt), 20))
+        raise last if last else RuntimeError("Tudou GET failed")
+
     def _poll(self, task_id: str, *, interval: int = 10, timeout: int = 900) -> dict:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            response = requests.get(f"{self.base_url}/v1/tasks/{task_id}", headers=self.headers,
-                                    timeout=60, proxies=Config.requests_proxies("tudou"))
-            response.raise_for_status()
-            payload = response.json()
+            payload = self._get(f"/v1/tasks/{task_id}")
             if payload.get("code") not in (None, 0, 200):
                 raise TudouTaskError(f"土豆 API 查询失败：{str(payload.get('message') or payload.get('code'))[:200]}",
                                      task_id, "query_failed", "unknown")
@@ -109,10 +138,7 @@ class TudouClient:
 
     def _refresh_completed_video_result(self, task_id: str) -> dict:
         """Read the same accepted task once; never poll, submit, or accept another task's result."""
-        response = requests.get(f"{self.base_url}/v1/tasks/{task_id}", headers=self.headers,
-                                timeout=60, proxies=Config.requests_proxies("tudou"))
-        response.raise_for_status()
-        payload = response.json()
+        payload = self._get(f"/v1/tasks/{task_id}")
         if (not isinstance(payload, dict) or isinstance(payload.get("code"), bool)
                 or payload.get("code") not in (None, 0, 200)):
             raise RuntimeError("土豆 API 未返回原视频任务的成功查询回执。")
@@ -287,10 +313,7 @@ class TudouClient:
 
     def _refresh_completed_image_result(self, task_id: str) -> dict:
         """Read the same accepted image task once; never poll or submit a replacement."""
-        response = requests.get(f"{self.base_url}/v1/tasks/{task_id}", headers=self.headers,
-                                timeout=60, proxies=Config.requests_proxies("tudou"))
-        response.raise_for_status()
-        payload = response.json()
+        payload = self._get(f"/v1/tasks/{task_id}")
         if (not isinstance(payload, dict) or isinstance(payload.get("code"), bool)
                 or payload.get("code") not in (None, 0, 200)):
             raise RuntimeError("土豆 API 未返回原图片任务的成功查询回执。")

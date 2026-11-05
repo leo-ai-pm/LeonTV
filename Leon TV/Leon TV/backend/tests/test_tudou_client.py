@@ -124,3 +124,93 @@ class TudouClientTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_transient_errors_are_classified_for_retry():
+    import requests
+    from models.tudou_client import TudouClient
+
+    assert TudouClient._is_transient(requests.exceptions.ConnectionError("boom"))
+    assert TudouClient._is_transient(requests.exceptions.Timeout("slow"))
+    assert TudouClient._is_transient(requests.exceptions.SSLError("eof"))
+
+    response = requests.Response()
+    response.status_code = 429
+    assert TudouClient._is_transient(requests.exceptions.HTTPError(response=response))
+    response.status_code = 503
+    assert TudouClient._is_transient(requests.exceptions.HTTPError(response=response))
+    response.status_code = 401
+    assert not TudouClient._is_transient(requests.exceptions.HTTPError(response=response))
+
+
+def test_get_retries_transient_failures_then_succeeds(monkeypatch):
+    import requests
+    from models.tudou_client import TudouClient
+
+    calls = {"n": 0}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": {"status": "completed", "result": {"ok": True}}}
+
+    def fake_get(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise requests.exceptions.SSLError("EOF occurred")
+        return FakeResponse()
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr("models.tudou_client.time.sleep", lambda *_: None)
+
+    payload = TudouClient(api_key="test")._get("/v1/tasks/task_x")
+    assert payload["data"]["result"] == {"ok": True}
+    assert calls["n"] == 3
+
+
+def test_get_does_not_retry_a_client_error(monkeypatch):
+    import requests
+    from models.tudou_client import TudouClient
+
+    calls = {"n": 0}
+
+    def fake_get(*args, **kwargs):
+        calls["n"] += 1
+        response = requests.Response()
+        response.status_code = 401
+        raise requests.exceptions.HTTPError("unauthorized", response=response)
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr("models.tudou_client.time.sleep", lambda *_: None)
+
+    try:
+        TudouClient(api_key="test")._get("/v1/tasks/task_x")
+    except requests.exceptions.HTTPError:
+        pass
+    else:
+        raise AssertionError("expected HTTPError")
+    assert calls["n"] == 1
+
+
+def test_get_gives_up_after_the_attempt_budget(monkeypatch):
+    import requests
+    from models.tudou_client import TudouClient
+
+    calls = {"n": 0}
+
+    def fake_get(*args, **kwargs):
+        calls["n"] += 1
+        raise requests.exceptions.ConnectionError("boom")
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr("models.tudou_client.time.sleep", lambda *_: None)
+
+    try:
+        TudouClient(api_key="test")._get("/v1/tasks/task_x", attempts=3)
+    except requests.exceptions.ConnectionError:
+        pass
+    else:
+        raise AssertionError("expected ConnectionError")
+    assert calls["n"] == 3
