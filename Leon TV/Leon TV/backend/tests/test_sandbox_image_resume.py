@@ -77,3 +77,33 @@ def test_persist_image_task_is_a_noop_without_job_or_receipt(tmp_path, monkeypat
     sandbox._persist_image_task(None, "task_missing", FakeTaskError("boom"))
     sandbox._persist_image_task("b" * 32, "task_missing", FakeTaskError("boom"))
     assert list(jobs_dir.iterdir()) == []
+
+
+def test_renaming_generated_media_keeps_the_provider_source(tmp_path):
+    from media_tools import move_media_with_provider_source
+
+    source = tmp_path / "tudou_abc.png"
+    source.write_bytes(b"\x89PNG fake")
+    sidecar = tmp_path / "tudou_abc.png.tudou-source.json"
+    sidecar.write_text('{"url": "https://cdn.example/x.png"}', encoding="utf-8")
+
+    target = tmp_path / "seg_01_01.jpg"
+    move_media_with_provider_source(str(source), str(target))
+
+    assert target.is_file()
+    assert not source.exists()
+    assert not sidecar.exists()
+    moved = tmp_path / "seg_01_01.jpg.tudou-source.json"
+    assert moved.is_file()
+    assert "cdn.example" in moved.read_text(encoding="utf-8")
+
+
+def test_renaming_without_a_sidecar_still_moves_the_file(tmp_path):
+    from media_tools import move_media_with_provider_source
+
+    source = tmp_path / "plain.png"
+    source.write_bytes(b"\x89PNG fake")
+    target = tmp_path / "out.png"
+    move_media_with_provider_source(str(source), str(target))
+    assert target.is_file() and not source.exists()
+    assert not (tmp_path / "out.png.tudou-source.json").exists()

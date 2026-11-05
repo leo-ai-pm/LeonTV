@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 from prompts.loader import load_prompt
 
 from .base_agent import AgentInterface
+from media_tools import move_media_with_provider_source
 
 logger = logging.getLogger(__name__)
 
@@ -306,9 +307,7 @@ class ReferenceGeneratorAgent(AgentInterface):
 
                 gen = paths[0]
                 if gen != save_path:
-                    if os.path.exists(save_path):
-                        os.remove(save_path)
-                    os.rename(gen, save_path)
+                    move_media_with_provider_source(gen, save_path)
 
                 # VLM 评估
                 eval_result = self._evaluate_with_vlm(save_path, segment, plot, current_visual_prompt,

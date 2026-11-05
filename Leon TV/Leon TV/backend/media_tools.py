@@ -18,3 +18,19 @@ def ffconcat_entry(path: str) -> str:
         raise ValueError("Media filename contains unsupported control characters")
     escaped = absolute.replace("'", "'\\''")
     return f"file '{escaped}'\n"
+
+
+def move_media_with_provider_source(source: str, destination: str) -> None:
+    """移动生成的图片，并同步迁移土豆的公网来源凭据。
+
+    图生视频只接受公网 URL 或带 `<图片>.tudou-source.json` 的本地文件；
+    阶段 Agent 重命名输出文件时若不同步迁移凭据，后续视频阶段就会失败。
+    """
+    import os
+
+    sidecar = f"{source}.tudou-source.json"
+    if os.path.exists(destination):
+        os.remove(destination)
+    os.rename(source, destination)
+    if os.path.exists(sidecar):
+        os.replace(sidecar, f"{destination}.tudou-source.json")
