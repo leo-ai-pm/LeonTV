@@ -99,6 +99,9 @@ async def start_project(req: ProjectStartRequest):
         "enable_concurrency": req.enable_concurrency if req.enable_concurrency is not None else True,
         "web_search": req.web_search if req.web_search is not None else False,
         "episodes": req.episodes if req.episodes is not None else 4,
+        "content_mode": (req.content_mode or "drama"),
+        "target_duration_seconds": req.target_duration_seconds,
+        "target_shot_count": req.target_shot_count,
     }
     meta["video_model"] = _active_video_model(meta)
     session = workflow_engine.create_session(session_id, meta)

@@ -22,6 +22,9 @@ class ProjectStartRequest(BaseModel):
     enable_concurrency: Optional[bool] = True
     web_search: Optional[bool] = False
     episodes: Optional[int] = None
+    content_mode: Optional[str] = None  # 'short' | 'drama'
+    target_duration_seconds: Optional[int] = None
+    target_shot_count: Optional[int] = None
 
 
 class InterventionRequest(BaseModel):

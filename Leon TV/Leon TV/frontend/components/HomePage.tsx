@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { errorMessage } from '@/lib/http';
 import ModelOptions from '@/components/ModelOptions';
-import { Settings2, Clock, ArrowRight, CheckCircle, Trash2, Globe, ListOrdered, Loader2, KeyRound, FileText } from 'lucide-react';
+import { Settings2, Clock, ArrowRight, CheckCircle, Trash2, Globe, ListOrdered, Loader2, KeyRound, FileText, Film } from 'lucide-react';
 import clsx from 'clsx';
 import { PROMPT_EXAMPLES } from '@/config/examples';
 import {
@@ -22,6 +22,9 @@ import { planModels, type ModelCapability } from '@/lib/modelRouter';
 
 export interface ProjectParams {
   idea: string;
+  content_mode?: 'drama' | 'short';
+  target_duration_seconds?: number;
+  target_shot_count?: number;
   file_path?: string; // 上传的文件路径 (由后端返回的文件名)
   style: string;
   video_ratio: string;
@@ -120,6 +123,9 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
   const [enableConcurrency, setEnableConcurrency] = useState(true);
   const [webSearch, setWebSearch] = useState(false);
   const [episodes, setEpisodes] = useState(4);
+  const [shortMode, setShortMode] = useState(false);
+  const [shortDuration] = useState(15);
+  const [shortShots, setShortShots] = useState(2);
   const [showEpisodesPanel, setShowEpisodesPanel] = useState(false);
 
   // 上传相关状态
@@ -302,7 +308,9 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
       video_model: activeVideoModel,
       enable_concurrency: enableConcurrency,
       web_search: webSearch,
-      episodes,
+      episodes: shortMode ? 1 : episodes,
+      content_mode: shortMode ? 'short' : 'drama',
+      ...(shortMode ? { target_duration_seconds: shortDuration, target_shot_count: shortShots } : {}),
     }, auto);
   };
 
@@ -488,6 +496,31 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
                 生成配置
               </button>
               <button
+                type="button"
+                onClick={() => setShortMode(value => !value)}
+                className={clsx(
+                  'xyq-tool-button flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  shortMode ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                )}
+                title="短片模式：单集、固定镜数、无对白；不按微短剧结构展开"
+              >
+                <Film className="w-3.5 h-3.5" />
+                {shortMode ? `短片：${shortDuration}s · ${shortShots} 镜` : '短片模式'}
+              </button>
+              {shortMode && (
+                <select
+                  value={shortShots}
+                  onChange={event => setShortShots(Number(event.target.value))}
+                  className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-600"
+                  aria-label="短片镜数"
+                >
+                  <option value={1}>1 镜</option>
+                  <option value={2}>2 镜</option>
+                  <option value={3}>3 镜</option>
+                  <option value={4}>4 镜</option>
+                </select>
+              )}
+              <button
                 onClick={() => setWebSearch(!webSearch)}
                 className={clsx(
                   'xyq-tool-button flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
@@ -499,6 +532,13 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
                 <Globe className="w-3.5 h-3.5" />
                 联网搜索
               </button>
+              <Link
+                href="/workspace"
+                className="xyq-tool-button flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+                title="15–30 秒短片建议用画布：逐镜出图、出视频再导出"
+              >
+                <Film className="w-3.5 h-3.5" /> 拍短片？用画布
+              </Link>
             </div>
             <div className="flex items-center gap-2">
               {/* 隐藏的文件输入框 */}
@@ -562,6 +602,10 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
               </button>
             </div>
           </div>
+          <p className="mt-3 text-xs leading-5 text-white/60">
+            六阶段按「微短剧」剧本结构生成（每集 25–30 行台词、多场次），适合 1 分钟以上的多场次作品；
+            15–30 秒短片请走画布，逐镜出图、出视频再导出。
+          </p>
           {(configLoading || configError) && (
             <div className={clsx('mt-3 text-xs', configError ? 'text-red-500' : 'text-gray-400')}>
               {configError || '正在读取默认模型……'}

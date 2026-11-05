@@ -632,6 +632,9 @@ export default function WorkflowPanel() {
         web_search: params.web_search,
         expand_idea: params.expand_idea,
         episodes: params.episodes,
+        ...(params.content_mode ? { content_mode: params.content_mode } : {}),
+        ...(params.target_duration_seconds ? { target_duration_seconds: params.target_duration_seconds } : {}),
+        ...(params.target_shot_count ? { target_shot_count: params.target_shot_count } : {}),
       });
       requestedSessionRef.current = result.session_id;
       restoredSessionRef.current = result.session_id;
@@ -671,6 +674,9 @@ export default function WorkflowPanel() {
         enable_concurrency: params.enable_concurrency,
         web_search: params.web_search,
         episodes: params.episodes,
+        content_mode: params.content_mode,
+        target_duration_seconds: params.target_duration_seconds,
+        target_shot_count: params.target_shot_count,
         auto_mode: useAutoMode,
       };
 

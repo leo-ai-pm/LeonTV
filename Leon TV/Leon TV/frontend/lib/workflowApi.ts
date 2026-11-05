@@ -230,6 +230,9 @@ export async function startProject(params: {
   web_search?: boolean;
   expand_idea?: boolean;
   episodes?: number;
+  content_mode?: 'drama' | 'short';
+  target_duration_seconds?: number;
+  target_shot_count?: number;
 }): Promise<{ session_id: string; status: string; params: Record<string, unknown> }> {
   const resp = await fetch('/api/project/start', {
     method: 'POST',

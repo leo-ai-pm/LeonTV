@@ -77,6 +77,9 @@ SESSION_META_KEYS = (
     "enable_concurrency",
     "web_search",
     "episodes",
+    "content_mode",
+    "target_duration_seconds",
+    "target_shot_count",
 )
 
 

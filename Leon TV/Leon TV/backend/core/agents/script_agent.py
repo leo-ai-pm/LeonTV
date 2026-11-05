@@ -368,7 +368,12 @@ class ScriptWriterAgent(AgentInterface):
             style = input_data.get("style", "anime")
             llm_model = self._require_input(input_data, "llm_model")
             web_search = input_data.get("web_search", False)
+            short_mode = str(input_data.get("content_mode") or "drama") == "short"
+            target_duration = int(input_data.get("target_duration_seconds") or 15)
+            target_shots = max(1, int(input_data.get("target_shot_count") or 2))
             episodes = input_data.get("episodes")
+            if short_mode:
+                episodes = 1
             if episodes is None:
                 logger.warning("[ScriptWriter] episodes missing from input_data; falling back to 4. session=%s", sid)
                 episodes = 4
@@ -440,31 +445,40 @@ class ScriptWriterAgent(AgentInterface):
 
             # 1. Generate full script
             _log_progress(10, "正在生成完整剧本文本初稿...")
-            prompt = _get_script_prompt("generate_script", "zh" if is_zh else "en").format(idea=idea, style=style, episodes=episodes)
+            if short_mode:
+                # 短片模式：单集、固定镜数、无对白；不跑微短剧的台词/情节评估与删减。
+                prompt = _get_script_prompt("generate_script_short", "zh").format(
+                    idea=idea, style=style, duration=target_duration, shots=target_shots,
+                    per_shot=max(1, round(target_duration / target_shots)),
+                )
+            else:
+                prompt = _get_script_prompt("generate_script", "zh" if is_zh else "en").format(idea=idea, style=style, episodes=episodes)
 
             full_script_text = await loop.run_in_executor(None, self._cancellable_query, llm, prompt, [], llm_model, True, sid, web_search)
-            logger.info(f"[ScriptWriter] Initial script generated ({len(full_script_text)} chars)")
-            full_script_text = await _trim_script_if_needed(full_script_text, "初稿")
-            full_script_text = await _repair_episode_count_if_needed(full_script_text, "初稿")
-            
-            _log_progress(20, "正在进行台词评估...")
-            eval_dialogue_prompt = _get_script_prompt("eval_dialogue", "zh" if is_zh else "en").format(script_text=full_script_text)
-            dialogue_critique = await loop.run_in_executor(None, self._cancellable_query, llm, eval_dialogue_prompt, [], llm_model, True, sid, web_search)
-            
-            _log_progress(30, "正在进行情节评估...")
-            eval_plot_prompt = _get_script_prompt("eval_plot", "zh" if is_zh else "en").format(script_text=full_script_text)
-            plot_critique = await loop.run_in_executor(None, self._cancellable_query, llm, eval_plot_prompt, [], llm_model, True, sid, web_search)
-            
-            _log_progress(40, "正在根据评估意见优化剧本...")
-            revise_prompt = _get_script_prompt("revise_script", "zh" if is_zh else "en").format(
-                script_text=full_script_text, 
-                dialogue_critique=dialogue_critique, 
-                plot_critique=plot_critique
-            )
-            full_script_text = await loop.run_in_executor(None, self._cancellable_query, llm, revise_prompt, [], llm_model, True, sid, web_search)
-            logger.info(f"[ScriptWriter] Final script generated ({len(full_script_text)} chars)")
-            full_script_text = await _trim_script_if_needed(full_script_text, "优化后")
-            full_script_text = await _repair_episode_count_if_needed(full_script_text, "优化后")
+            logger.info(f"[ScriptWriter] Initial script generated ({len(full_script_text)} chars) short_mode={short_mode}")
+            if not short_mode:
+                full_script_text = await _trim_script_if_needed(full_script_text, "初稿")
+                full_script_text = await _repair_episode_count_if_needed(full_script_text, "初稿")
+
+            if not short_mode:
+                _log_progress(20, "正在进行台词评估...")
+                eval_dialogue_prompt = _get_script_prompt("eval_dialogue", "zh" if is_zh else "en").format(script_text=full_script_text)
+                dialogue_critique = await loop.run_in_executor(None, self._cancellable_query, llm, eval_dialogue_prompt, [], llm_model, True, sid, web_search)
+
+                _log_progress(30, "正在进行情节评估...")
+                eval_plot_prompt = _get_script_prompt("eval_plot", "zh" if is_zh else "en").format(script_text=full_script_text)
+                plot_critique = await loop.run_in_executor(None, self._cancellable_query, llm, eval_plot_prompt, [], llm_model, True, sid, web_search)
+
+                _log_progress(40, "正在根据评估意见优化剧本...")
+                revise_prompt = _get_script_prompt("revise_script", "zh" if is_zh else "en").format(
+                    script_text=full_script_text,
+                    dialogue_critique=dialogue_critique,
+                    plot_critique=plot_critique
+                )
+                full_script_text = await loop.run_in_executor(None, self._cancellable_query, llm, revise_prompt, [], llm_model, True, sid, web_search)
+                logger.info(f"[ScriptWriter] Final script generated ({len(full_script_text)} chars)")
+                full_script_text = await _trim_script_if_needed(full_script_text, "优化后")
+                full_script_text = await _repair_episode_count_if_needed(full_script_text, "优化后")
 
             _log_progress(60, "最终剧本生成完成，正在提取人物/场景信息...")
 
