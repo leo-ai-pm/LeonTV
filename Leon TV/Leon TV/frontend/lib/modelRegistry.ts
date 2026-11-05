@@ -16,7 +16,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 const TUDOU_VIDEO_MODEL_IDS = new Set(['minimax-h3', 'seedance-2.5']);
 
 export function groupModelOptions(
-  models: Array<{ id: string; label?: string; provider?: string }>,
+  models: Array<{ id: string; label?: string; provider?: string; api_contract_verified?: boolean }>,
 ): ProviderGroup[] {
   const groups = new Map<string, ProviderGroup>();
   for (const model of models) {
@@ -31,6 +31,7 @@ export function groupModelOptions(
     groups.get(provider)!.models.push({
       id: model.id,
       label: model.label || model.id,
+      verified: model.api_contract_verified !== false,
     });
   }
   return Array.from(groups.values());
@@ -43,7 +44,11 @@ export async function fetchModelGroupsByType(
   return groupModelOptions(models);
 }
 
-export async function fetchVideoModelGroupsByAbility(ability: string): Promise<ProviderGroup[]> {
-  const models = await fetchApiModels({ mediaType: 'video', ability, verifiedOnly: true });
+export async function fetchVideoModelGroupsByAbility(
+  ability: string,
+  options: { includeUnverified?: boolean } = {},
+): Promise<ProviderGroup[]> {
+  // 默认只列已验证模型；用户显式要求时才展开未验证的型号（会有失败风险）。
+  const models = await fetchApiModels({ mediaType: 'video', ability, verifiedOnly: !options.includeUnverified });
   return groupModelOptions(models);
 }

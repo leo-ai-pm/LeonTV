@@ -6,7 +6,11 @@ export default function ModelOptions({ value, groups }: { value: string; groups:
   return <>
     {!available && <option value={value} disabled>{value ? `${value}（不可用）` : '请选择可用模型'}</option>}
     {groups.map(group => <optgroup key={group.provider} label={group.label}>
-      {group.models.map(model => <option key={model.id} value={model.id}>{model.label}</option>)}
+      {group.models.map(model => (
+        <option key={model.id} value={model.id}>
+          {model.verified === false ? `${model.label}（未验证）` : model.label}
+        </option>
+      ))}
     </optgroup>)}
   </>;
 }

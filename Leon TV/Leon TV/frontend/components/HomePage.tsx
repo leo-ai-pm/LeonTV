@@ -120,6 +120,7 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
   const [configError, setConfigError] = useState('');
   const [providerCredentials, setProviderCredentials] = useState<ProviderCredentials | null>(null);
   const [autoModelNote, setAutoModelNote] = useState('');
+  const [showUnverifiedVideo, setShowUnverifiedVideo] = useState(false);
   const [enableConcurrency, setEnableConcurrency] = useState(true);
   const [webSearch, setWebSearch] = useState(false);
   const [episodes, setEpisodes] = useState(4);
@@ -207,17 +208,28 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
     Promise.all([
       fetchModelGroupsByType('llm'), fetchModelGroupsByType('vlm'),
       fetchModelGroupsByType('t2i'), fetchModelGroupsByType('i2i'),
-      fetchVideoModelGroupsByAbility('first_frame_i2v'),
-      fetchVideoModelGroupsByAbility('start_end_frame_i2v'),
-      fetchVideoModelGroupsByAbility('reference_to_video'),
-    ]).then(([llm, vlm, t2i, i2i, first, ends, refs]) => {
+    ]).then(([llm, vlm, t2i, i2i]) => {
       if (cancelled) return;
       setLlmProviders(llm); setVlmProviders(vlm); setT2iProviders(t2i); setI2iProviders(i2i);
-      setFirstFrameVideoProviders(first); setStartEndVideoProviders(ends); setReferenceVideoProviders(refs);
     }).catch(cause => { if (!cancelled) setConfigError(errorMessage(cause, '模型列表加载失败')); })
       .finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
   }, []);
+
+  // 视频模型列表：默认只列已验证型号，可显式展开未验证型号（会有失败风险）。
+  useEffect(() => {
+    let cancelled = false;
+    const options = { includeUnverified: showUnverifiedVideo };
+    Promise.all([
+      fetchVideoModelGroupsByAbility('first_frame_i2v', options),
+      fetchVideoModelGroupsByAbility('start_end_frame_i2v', options),
+      fetchVideoModelGroupsByAbility('reference_to_video', options),
+    ]).then(([first, ends, refs]) => {
+      if (cancelled) return;
+      setFirstFrameVideoProviders(first); setStartEndVideoProviders(ends); setReferenceVideoProviders(refs);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [showUnverifiedVideo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -742,7 +754,18 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 col-span-2">
-                  <span className="text-gray-500 font-medium">{selectedVideoModeLabel}模型</span>
+                  <span className="flex items-center justify-between text-gray-500 font-medium">
+                    <span>{selectedVideoModeLabel}模型</span>
+                    <span className="flex items-center gap-1.5 text-[10px] font-normal">
+                      <input
+                        type="checkbox"
+                        checked={showUnverifiedVideo}
+                        onChange={e => setShowUnverifiedVideo(e.target.checked)}
+                        className="w-3 h-3 rounded border-gray-300 text-blue-500 focus:ring-blue-500/30"
+                      />
+                      显示未验证型号
+                    </span>
+                  </span>
                   <select
                     value={activeVideoModel}
                     onChange={e => setActiveVideoModel(e.target.value)}

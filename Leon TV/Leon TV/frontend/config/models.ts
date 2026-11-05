@@ -3,6 +3,8 @@ export interface ModelOption {
     id: string;
     label: string;
     default?: boolean;
+    /** 目录中的 api_contract_verified 标记；未验证的模型仍可选，但会在界面上标注。 */
+    verified?: boolean;
 }
 
 export interface ProviderGroup {
