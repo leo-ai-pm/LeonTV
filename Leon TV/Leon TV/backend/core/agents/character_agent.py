@@ -174,7 +174,8 @@ class CharacterDesignerAgent(AgentInterface):
         else:
             base_prompt = self._setting_prompt(name, desc, style_prompt)
 
-        video_ratio = "16:9"
+        # 画幅跟随会话设置，不再固定 16:9。
+        video_ratio = getattr(self, "_video_ratio", "") or "16:9"
         resolution = "2K"
         current_prompt = base_prompt
 
@@ -414,6 +415,7 @@ class CharacterDesignerAgent(AgentInterface):
         from models.image_client import ImageClient
 
         sid = input_data["session_id"]
+        self._video_ratio = input_data.get("video_ratio") or "16:9"
         style = input_data.get("style", "anime")
         t2i_model = self._require_input(input_data, "image_t2i_model")
         vlm_model = self._require_input(input_data, "vlm_model")

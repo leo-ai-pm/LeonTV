@@ -57,16 +57,31 @@ class TudouChatClient:
                                   requests.exceptions.ChunkedEncodingError))
 
     @staticmethod
+    def _sniff_mime(data: bytes, fallback: str = "image/png") -> str:
+        """按文件头判断真实格式；供应商可能把 WEBP 存成 .png/.jpg，不能只看扩展名。"""
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if data.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return "image/webp"
+        if data[:6] in (b"GIF87a", b"GIF89a"):
+            return "image/gif"
+        return fallback
+
+    @staticmethod
     def _as_data_uri(value: str) -> str:
-        """http(s)/data URI 原样传递；本地文件转 base64 data URI。"""
+        """http(s)/data URI 原样传递；本地文件转 base64 data URI（按真实字节判断 MIME）。"""
         text = str(value or "")
         if text.startswith(("http://", "https://", "data:")):
             return text
         path = Path(text)
         if not path.is_file():
             raise TudouChatError(f"参考图不存在：{text}")
-        mime = mimetypes.guess_type(path.name)[0] or "image/png"
-        return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+        raw = path.read_bytes()
+        guessed = mimetypes.guess_type(path.name)[0] or "image/png"
+        mime = TudouChatClient._sniff_mime(raw, guessed)
+        return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
 
     @staticmethod
     def _build_messages(prompt: str, images: Optional[List[str]] = None) -> list:

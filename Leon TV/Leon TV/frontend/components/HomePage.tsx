@@ -295,7 +295,8 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
       idea,
       file_path: uploadedFile?.path, // 如果上传了文件，传给后端
       style: selectedStyle,
-      video_ratio: selectedRatio,
+      // 短片模式固定竖屏 9:16；短剧沿用用户选择的画幅。
+      video_ratio: shortMode ? '9:16' : selectedRatio,
       video_resolution: selectedResolution,
       llm_model: selectedLLM,
       vlm_model: selectedVLM,

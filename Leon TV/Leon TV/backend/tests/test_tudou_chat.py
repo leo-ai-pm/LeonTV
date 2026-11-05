@@ -115,3 +115,22 @@ def test_provider_routing_prefers_tudou_for_its_models():
     assert model_provider("gemini-3.5-flash") == "tudou"
     assert model_provider("qwen3.7-max") == "dashscope"
     assert model_provider("unknown-model") == ""
+
+
+def test_webp_saved_as_png_is_sent_with_the_real_media_type(tmp_path):
+    image = tmp_path / "frame.png"          # 供应商把 WEBP 存成了 .png
+    image.write_bytes(b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"\x00" * 16)
+
+    messages = TudouChatClient._build_messages("看这张图", [str(image)])
+    url = messages[0]["content"][1]["image_url"]["url"]
+    assert url.startswith("data:image/webp;base64,"), url[:40]
+
+
+def test_png_and_jpeg_are_detected_from_bytes(tmp_path):
+    png = tmp_path / "a.jpg"                # 扩展名与内容不一致
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+    jpg = tmp_path / "b.png"
+    jpg.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 8)
+
+    assert TudouChatClient._build_messages("x", [str(png)])[0]["content"][1]["image_url"]["url"].startswith("data:image/png")
+    assert TudouChatClient._build_messages("x", [str(jpg)])[0]["content"][1]["image_url"]["url"].startswith("data:image/jpeg")
