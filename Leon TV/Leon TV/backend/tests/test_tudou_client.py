@@ -29,16 +29,20 @@ class TudouClientTests(unittest.TestCase):
             ark.assert_called_once()
             relay.assert_not_called()
 
-    def test_failed_seedance_task_is_not_submitted_again(self):
+    def test_failed_seedance_task_retries_upstream_failures_bounded(self):
+        """上游任务失败视为通道抖动：有限重试后仍失败才抛错，且从不下载。"""
+        from models.tudou_client import UPSTREAM_RETRY_DELAYS
+
         client = TudouClient(api_key="test-key")
         with tempfile.TemporaryDirectory() as directory, \
              patch("models.tudou_client.requests.post", return_value=response({"data":{"id":"seedance-task"}})) as submit, \
              patch("models.tudou_client.requests.get", return_value=response({"data":{"status":"failed","error":{"message":"upstream failed"}}})), \
+             patch("models.tudou_client.time.sleep"), \
              patch.object(client, "_download") as download:
             with self.assertRaisesRegex(RuntimeError, "upstream failed"):
                 client.generate_video("rain", "https://media.example/frame.png", str(Path(directory) / "out.mp4"),
                                       model="seedance-2.0", duration=5, ratio="16:9", resolution="720p")
-            submit.assert_called_once()
+            self.assertEqual(submit.call_count, len(UPSTREAM_RETRY_DELAYS) + 1)
             body = submit.call_args.kwargs["json"]
             self.assertEqual(submit.call_args.args[0], "https://api.ai-tudou.net/v1/videos/generations")
             self.assertEqual((body["model"], body["duration"], body["aspect_ratio"], body["resolution"]),

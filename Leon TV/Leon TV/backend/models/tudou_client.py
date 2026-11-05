@@ -34,6 +34,17 @@ class TudouPollTimeout(TimeoutError):
         self.task_id, self.code, self.status = task_id, "poll_timeout", "unknown"
 
 
+# 上游「生成失败」通常是通道抖动而非内容问题，允许有限次重新提交。
+UPSTREAM_RETRY_DELAYS = (10, 30)
+
+
+def should_retry_upstream(error: Exception) -> bool:
+    """只重试明确的上游任务失败；提交未知与 4xx 拒绝都不重试。"""
+    return (isinstance(error, TudouTaskError)
+            and getattr(error, "status", "") == "failed"
+            and getattr(error, "code", "") == "upstream_failed")
+
+
 class TudouClient:
     def __init__(self, api_key: str | None = None, base_url: str | None = None,
                  task_callback: Callable[[dict], None] | None = None):
@@ -154,6 +165,18 @@ class TudouClient:
         if not urlparse(self._first_url(result, "video")).netloc:
             raise RuntimeError("土豆 API 查询未返回有效的视频链接。")
         return result
+
+    @staticmethod
+    def _archive_failed_receipt(save_path: str | None, attempt: int) -> None:
+        """把失败回执改名留档，让下一次尝试可以重新提交而不被旧回执拦住。"""
+        if not save_path:
+            return
+        target = Path(f"{save_path}.tudou-task.json")
+        if target.exists():
+            try:
+                os.replace(target, target.with_name(f"{target.name}.failed{attempt}"))
+            except OSError:
+                logger.warning("Unable to archive failed Tudou receipt: %s", target)
 
     def _complete_video(self, receipt_path: Path, receipt: dict) -> str:
         task_id = receipt["task_id"]
@@ -422,6 +445,25 @@ class TudouClient:
 
     def generate_image(self, prompt: str, image_paths: list[str] | None, ratio: str,
                        save_dir: str | None = None, *, save_path: str | None = None) -> str:
+        """图片生成入口：上游失败时按退避重新提交，其余错误直接抛出。"""
+        # 固定本次输出路径，重试时才能定位并按需归档上一次的回执。
+        if save_path is None and save_dir is not None:
+            save_path = str(Path(save_dir) / f"tudou_{uuid.uuid4().hex}.png")
+        for attempt in range(len(UPSTREAM_RETRY_DELAYS) + 1):
+            try:
+                return self._generate_image_once(prompt, image_paths, ratio, save_dir, save_path=save_path)
+            except TudouTaskError as exc:
+                if not should_retry_upstream(exc) or attempt >= len(UPSTREAM_RETRY_DELAYS):
+                    raise
+                self._archive_failed_receipt(save_path, attempt + 1)
+                delay = UPSTREAM_RETRY_DELAYS[attempt]
+                logger.warning("Tudou image upstream failed; retry %s/%s in %ss",
+                               attempt + 1, len(UPSTREAM_RETRY_DELAYS), delay)
+                time.sleep(delay)
+        raise RuntimeError("unreachable")
+
+    def _generate_image_once(self, prompt: str, image_paths: list[str] | None, ratio: str,
+                             save_dir: str | None = None, *, save_path: str | None = None) -> str:
         """Generate once per explicit output path, or resume its original task."""
         self.headers
         body = {"model": "gpt-image-2-all", "prompt": prompt, "size": ratio or "16:9",
@@ -468,6 +510,23 @@ class TudouClient:
     def generate_video(self, prompt: str, image_path: str, save_path: str,
                        model: str = "wan3.0", duration: int = 5,
                        ratio: str = "16:9", resolution: str = "720p") -> str:
+        """视频生成入口：上游失败时按退避重新提交，其余错误直接抛出。"""
+        for attempt in range(len(UPSTREAM_RETRY_DELAYS) + 1):
+            try:
+                return self._generate_video_once(prompt, image_path, save_path, model, duration, ratio, resolution)
+            except TudouTaskError as exc:
+                if not should_retry_upstream(exc) or attempt >= len(UPSTREAM_RETRY_DELAYS):
+                    raise
+                self._archive_failed_receipt(save_path, attempt + 1)
+                delay = UPSTREAM_RETRY_DELAYS[attempt]
+                logger.warning("Tudou video upstream failed; retry %s/%s in %ss",
+                               attempt + 1, len(UPSTREAM_RETRY_DELAYS), delay)
+                time.sleep(delay)
+        raise RuntimeError("unreachable")
+
+    def _generate_video_once(self, prompt: str, image_path: str, save_path: str,
+                             model: str = "wan3.0", duration: int = 5,
+                             ratio: str = "16:9", resolution: str = "720p") -> str:
         self.headers  # Validate credentials before recording an uncertain submission.
         body = {"model": model, "prompt": prompt, "duration": int(duration),
                 "aspect_ratio": ratio, "resolution": resolution}
