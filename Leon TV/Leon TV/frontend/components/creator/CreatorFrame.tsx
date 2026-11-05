@@ -21,7 +21,7 @@ export default function CreatorFrame({ children, navigation, onNavigate }: { chi
         <p className="creator-sidebar-note"><ShieldCheck size={16} />保存简报不授权付费，<br />不会开始模型制作。</p>
       </aside>
       <div className="creator-main-wrap">
-        <header className="creator-top"><span>创作空间 <span aria-hidden="true">/</span> <strong>创作简报</strong></span><span className="creator-badge">真实制作待接入</span></header>
+        <header className="creator-top"><span>创作空间 <span aria-hidden="true">/</span> <strong>创作简报</strong></span><span className="creator-badge">可带入六阶段 · 看片待接入</span></header>
         <main id="creator-main" className="creator-main">{children}</main>
       </div>
     </div>

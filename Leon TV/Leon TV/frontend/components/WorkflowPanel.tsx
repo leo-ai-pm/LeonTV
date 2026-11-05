@@ -23,6 +23,8 @@ import { errorMessage } from '@/lib/http';
 import { stageStatus, workflowStatus } from '@/lib/workflowState';
 import TopBar, { STAGES, type ModelConfig } from './TopBar';
 import HomePage, { type ProjectParams } from './HomePage';
+import { creatorBriefApi } from '@/lib/creatorBriefApi';
+import { buildCreatorHandoff, type CreatorHandoff } from '@/lib/creatorHandoff';
 import {
   ScriptStage,
   CharacterStage,
@@ -1275,6 +1277,27 @@ export default function WorkflowPanel() {
     return () => { active = false; };
   }, [sessionParam, stageParam]);
 
+  // ── 创作简报带入（只读，不创建会话、不调用模型）──
+  const briefParam = searchParams.get('brief');
+  const [handoff, setHandoff] = useState<CreatorHandoff | null>(null);
+  const [handoffNotice, setHandoffNotice] = useState('');
+  useEffect(() => {
+    if (!briefParam) return;
+    let active = true;
+    (async () => {
+      try {
+        const detail = await creatorBriefApi.get(briefParam);
+        if (!active) return;
+        const built = buildCreatorHandoff(detail);
+        setHandoff(built);
+        setHandoffNotice(built ? '' : '该简报不是当前版本或剧本为空，未带入。请先在创作简报中保存后再试。');
+      } catch {
+        if (active) { setHandoff(null); setHandoffNotice('未能读取创作简报，可稍后重试或直接输入想法。'); }
+      }
+    })();
+    return () => { active = false; };
+  }, [briefParam]);
+
   // ── 返回首页 ──
   // 处理阶段点击，更新 URL
   const handleStageClick = (stage: string) => {
@@ -1370,14 +1393,17 @@ export default function WorkflowPanel() {
       />
 
       {workflowError && <p role="alert" className="px-6 py-3 text-sm text-red-600">{workflowError}</p>}
+      {handoffNotice && <p role="alert" className="px-6 py-3 text-sm text-amber-700">{handoffNotice}</p>}
       <main className="flex-1 min-w-0 overflow-hidden">
         {showHome ? (
           <HomePage
+            key={handoff ? `${handoff.briefId}-${handoff.revision}` : 'no-brief'}
             onStartProject={handleStartProject}
             onResumeProject={sid => void handleResumeProject(sid)}
             onDeleteSession={handleDeleteSession}
             history={history}
             isSubmitting={isRunning}
+            handoff={handoff}
           />
         ) : (
           <StageContent activeStage={activeStage} sessionId={sessionId} stageStates={stageStates}

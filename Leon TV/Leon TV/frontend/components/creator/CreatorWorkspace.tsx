@@ -1,12 +1,16 @@
 'use client';
 
 import CreatorFrame from './CreatorFrame';
-import { useEffect, useMemo, useRef, useSyncExternalStore, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { FileText, Film, Loader2, Plus, RefreshCw, ShieldCheck } from 'lucide-react';
+import { ArrowRight, FileText, Film, LayoutGrid, Loader2, Plus, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
 import CreatorBriefEditor from './CreatorBriefEditor';
 import BriefPlannerPanel from './BriefPlannerPanel';
 import { CreatorBriefController } from '@/lib/creatorBriefController';
+import { buildCreatorHandoff, creatorHandoffHref } from '@/lib/creatorHandoff';
+import { buildBriefCanvas, type ShotContent } from '@/lib/briefToCanvas';
+import { STORYBOARD_MODEL, buildStoryboardPrompt, parseStoryboard } from '@/lib/storyboardPlan';
+import { createStudioProject, saveStudioProject } from '@/lib/studioApi';
 import type { CreatorBriefDetail, CreatorEditorFields } from '@/lib/creatorBriefTypes';
 
 export default function CreatorWorkspace() {
@@ -48,6 +52,50 @@ export default function CreatorWorkspace() {
     requirements: { label: '制作要求', id: 'creator-requirements' }, budgetText: { label: '预算', id: 'creator-budget' },
   };
   const document = state.document;
+  const handoff = document && !state.dirty && !state.saving && !state.loading && !state.pending && !state.conflictDetected
+    ? buildCreatorHandoff(document)
+    : null;
+  const [shotCount, setShotCount] = useState(3);
+  const [canvasStage, setCanvasStage] = useState<'idle' | 'planning' | 'creating'>('idle');
+  const [canvasError, setCanvasError] = useState('');
+
+  // 简报 → 画布：storyboard 会先让模型拆分镜，skeleton 只建空节点。
+  const createCanvas = async (mode: 'storyboard' | 'skeleton') => {
+    if (!document) return;
+    setCanvasError('');
+    setCanvasStage(mode === 'storyboard' ? 'planning' : 'creating');
+    try {
+      let content: ShotContent[] = [];
+      if (mode === 'storyboard') {
+        const total = document.production.duration_seconds;
+        const response = await fetch('/api/sandbox/llm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: STORYBOARD_MODEL, prompt: buildStoryboardPrompt(document, shotCount, total) }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.success) throw new Error(`${payload?.error || '分镜生成失败，请检查模型配置。'} 也可以先用「只建空骨架」。`);
+        const result = parseStoryboard(String(payload.result ?? ''), shotCount, total);
+        if (result.error) throw new Error(`${result.error} 可改回“只建空骨架”。`);
+        content = result.shots;
+      }
+      setCanvasStage('creating');
+      const plan = buildBriefCanvas(document, shotCount, content);
+      const project = await createStudioProject(plan.title);
+      await saveStudioProject(project.id, project.revision, plan.title, plan.nodes, plan.edges);
+      router.push(`/workspace/${project.id}`);
+    } catch (cause) {
+      setCanvasError(cause instanceof Error ? cause.message : '创建画布失败，请重试。');
+    } finally {
+      setCanvasStage('idle');
+    }
+  };
+
+  const openWorkflow = () => {
+    if (!handoff) return;
+    if ((state.dirty || state.saving || state.pending) && !window.confirm('当前有未保存编辑，六阶段会使用已保存的版本。确定继续？')) return;
+    router.push(creatorHandoffHref(handoff.briefId));
+  };
   return (
     <CreatorFrame onNavigate={navigate} navigation={<nav className="creator-brief-nav" aria-label="我的创作简报">
       <button type="button" className="creator-primary" disabled={state.saving || Boolean(state.pending)} onClick={() => {
@@ -76,8 +124,8 @@ export default function CreatorWorkspace() {
       <div className="creator-content-grid">
         <CreatorBriefEditor fields={state.fields} onChange={patch => controller.edit(patch)} onSave={save} busy={state.saving} disabled={state.loading || Boolean(state.pending) || state.conflictDetected || Boolean(document && !document.is_current) || Boolean(document && !state.dirty)} readOnly={state.loading} revision={document?.revision} dirty={state.dirty} fieldErrors={state.fieldErrors} />
         <aside className="creator-right">
-          <section className="creator-panel creator-panel-body"><h2>成片还没有开始</h2><div className="creator-media-empty"><Film size={33} strokeWidth={1.2} /><p>未来成片将在这里呈现</p><span>真实制作与看片待接入</span></div><p className="creator-muted">保存简报不会生成视频。已有画布和六阶段可从高级入口打开。</p></section>
-          <section className="creator-panel creator-panel-body"><h2>先把创作范围留下</h2><ol className="creator-scope"><li><span>01</span><div>保存创作简报<p>剧本、要求与预算草稿</p></div></li><li><span>02</span><div>准备规划任务<p>下方固定版本，查看待授权状态</p></div></li><li><span>03</span><div>制作与最终看片<p>待接入，不预先接受</p></div></li></ol><p className="creator-muted creator-safety"><ShieldCheck size={15} />预算是草稿；当前没有制作授权。</p></section>
+          <section className="creator-panel creator-panel-body"><h2>交给六阶段</h2><p className="creator-muted">把这份简报的剧本与制作要求带入六阶段创作，逐阶段确认后再生成。成片看片仍以六阶段页为准。</p><button type="button" className="creator-primary" disabled={!handoff} onClick={openWorkflow}><Film size={16} />带入六阶段创作<ArrowRight size={15} /></button><p className="creator-muted creator-safety"><ShieldCheck size={15} />带入不调用模型、不产生费用；{document && state.dirty ? '先保存当前编辑才能带入。' : '进入后需确认模型与密钥才会开始生成。'}</p><p className="creator-label" id="creator-canvas-heading">或落成一条画布</p><div className="creator-action-row"><label className="creator-inline" htmlFor="creator-shots"><span className="creator-muted">镜数</span><select id="creator-shots" className="creator-field" style={{ width: 96 }} value={shotCount} onChange={event => setShotCount(Number(event.target.value))} disabled={canvasStage !== 'idle'}><option value={1}>1 镜</option><option value={2}>2 镜</option><option value={3}>3 镜</option><option value={4}>4 镜</option></select></label><button type="button" className="creator-secondary" disabled={!document || state.dirty || canvasStage !== 'idle'} onClick={() => void createCanvas('storyboard')}>{canvasStage === 'planning' ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}{canvasStage === 'planning' ? '正在拆分镜…' : canvasStage === 'creating' ? '正在建画布…' : '生成分镜画布'}</button></div><div className="creator-action-row"><button type="button" className="creator-text-button" disabled={!document || state.dirty || canvasStage !== 'idle'} onClick={() => void createCanvas('skeleton')}>只建空骨架</button><span className="creator-muted">不调用模型</span></div><p className="creator-muted">「生成分镜画布」会用 {STORYBOARD_MODEL} 把简报拆成 {shotCount} 个镜头并建好「分镜 → 参考图 → 视频」节点；参考图与视频仍需你逐镜生成或导入。</p>{canvasError && <p className="creator-notice creator-notice-error" role="alert">{canvasError}</p>}</section>
+          <section className="creator-panel creator-panel-body"><h2>先把创作范围留下</h2><ol className="creator-scope"><li><span>01</span><div>保存创作简报<p>剧本、要求与预算草稿</p></div></li><li><span>02</span><div>准备规划任务<p>下方固定版本，查看待授权状态</p></div></li><li><span>03</span><div>带入六阶段制作<p>逐阶段确认，成片待人工终验</p></div></li></ol><p className="creator-muted creator-safety"><ShieldCheck size={15} />预算是草稿；当前没有制作授权。</p></section>
           {document && <section className="creator-panel creator-panel-body"><h2>保存记录</h2><dl className="creator-record"><div><dt>当前简报</dt><dd>v{document.revision}</dd></div><div><dt>来源版本</dt><dd>v{document.source_version}</dd></div><div><dt>正文字符</dt><dd>{document.script_characters}</dd></div><div><dt>预算草稿</dt><dd>{document.budget_cny === null ? '待定' : `¥${document.budget_cny}`}</dd></div><div><dt>制作权限</dt><dd>未授权 · 不执行</dd></div></dl><details className="creator-conflict-details"><summary>查看版本记录</summary>{document.versions.map(version => <p key={version.revision}>简报 v{version.revision} · 来源 v{version.source_version}<br /><time dateTime={version.saved_at}>{new Date(version.saved_at).toLocaleString('zh-CN')}</time></p>)}</details></section>}
         </aside>
       </div>

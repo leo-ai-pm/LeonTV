@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { errorMessage } from '@/lib/http';
 import ModelOptions from '@/components/ModelOptions';
-import { Settings2, Clock, ArrowRight, CheckCircle, Trash2, Globe, ListOrdered, Loader2, KeyRound } from 'lucide-react';
+import { Settings2, Clock, ArrowRight, CheckCircle, Trash2, Globe, ListOrdered, Loader2, KeyRound, FileText } from 'lucide-react';
 import clsx from 'clsx';
 import { PROMPT_EXAMPLES } from '@/config/examples';
 import {
@@ -17,6 +17,8 @@ import {
 } from '@/config/models';
 import { STAGES } from './TopBar';
 import { fetchModelGroupsByType, fetchVideoModelGroupsByAbility } from '@/lib/modelRegistry';
+import type { CreatorHandoff } from '@/lib/creatorHandoff';
+import { planModels, type ModelCapability } from '@/lib/modelRouter';
 
 export interface ProjectParams {
   idea: string;
@@ -54,6 +56,8 @@ interface HomePageProps {
   onDeleteSession: (sessionId: string) => Promise<void>;
   history: HistoryItem[];
   isSubmitting?: boolean;
+  /** 由创作简报带入的初始输入；只预填，不创建会话、不调用模型。 */
+  handoff?: CreatorHandoff | null;
 }
 
 const INSPIRATION_IMAGES = [
@@ -94,8 +98,8 @@ function stageProgressLabel(statusMap?: Record<string, string>): { text: string;
   return { text: `已完成：${name} (${completed.length}/${STAGES.length})`, color: 'text-blue-600' };
 }
 
-export default function HomePage({ onStartProject, onResumeProject, onDeleteSession, history, isSubmitting = false }: HomePageProps) {
-  const [idea, setIdea] = useState('');
+export default function HomePage({ onStartProject, onResumeProject, onDeleteSession, history, isSubmitting = false, handoff = null }: HomePageProps) {
+  const [idea, setIdea] = useState(() => handoff?.idea ?? '');
   const [showSettings, setShowSettings] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState('realistic');
   const [selectedLLM, setSelectedLLM] = useState('');
@@ -106,12 +110,13 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
   const [selectedStartEndVideo, setSelectedStartEndVideo] = useState('');
   const [selectedReferenceVideo, setSelectedReferenceVideo] = useState('');
   const [selectedVideoMode, setSelectedVideoMode] = useState<VideoGenerationMode>('first_frame');
-  const [selectedRatio, setSelectedRatio] = useState('');
+  const [selectedRatio, setSelectedRatio] = useState(() => handoff?.videoRatio ?? '');
   const [selectedResolution, setSelectedResolution] = useState('720P');
   const [modelsLoading, setModelsLoading] = useState(true);
   const [configLoading, setConfigLoading] = useState(true);
   const [configError, setConfigError] = useState('');
   const [providerCredentials, setProviderCredentials] = useState<ProviderCredentials | null>(null);
+  const [autoModelNote, setAutoModelNote] = useState('');
   const [enableConcurrency, setEnableConcurrency] = useState(true);
   const [webSearch, setWebSearch] = useState(false);
   const [episodes, setEpisodes] = useState(4);
@@ -161,6 +166,31 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
           : !credentials.api_key;
       })
     : [];
+  // 模型路由（第一版，前端）：按已配置的密钥为每类能力挑一个模型。
+  const CAPABILITY_LABELS: Record<ModelCapability, string> = {
+    llm: 'LLM', vlm: 'VLM', t2i: '文生图', i2i: '图生图', video: '视频',
+  };
+  const autoSelectModels = () => {
+    const catalog = {
+      llm: llmProviders, vlm: vlmProviders, t2i: t2iProviders,
+      i2i: i2iProviders, video: activeVideoProviders,
+    };
+    const plan = planModels(catalog, providerCredentials || {});
+    if (plan.picks.llm) setSelectedLLM(plan.picks.llm.model);
+    if (plan.picks.vlm) setSelectedVLM(plan.picks.vlm.model);
+    if (plan.picks.t2i) setSelectedT2I(plan.picks.t2i.model);
+    if (plan.picks.i2i) setSelectedI2I(plan.picks.i2i.model);
+    if (plan.picks.video) {
+      const model = plan.picks.video.model;
+      if (selectedVideoMode === 'start_end_frame') setSelectedStartEndVideo(model);
+      else if (selectedVideoMode === 'reference') setSelectedReferenceVideo(model);
+      else setSelectedFirstFrameVideo(model);
+    }
+    setAutoModelNote(plan.missing.length
+      ? `缺少可用密钥：${plan.missing.map(item => CAPABILITY_LABELS[item]).join('、')}，其余已自动选择。`
+      : '已按当前已配置的密钥自动选择模型。');
+  };
+
   const selectedModels = [[selectedLLM, llmProviders], [selectedVLM, vlmProviders], [selectedT2I, t2iProviders], [selectedI2I, i2iProviders], [activeVideoModel, activeVideoProviders]] as const;
   const unavailableModels = selectedModels.filter(([value, groups]) => value && !groups.some(group => group.models.some(model => model.id === value))).map(([value]) => value);
   const modelConfigReady = unavailableModels.length === 0 && Boolean(selectedLLM && selectedVLM && selectedT2I && selectedI2I && activeVideoModel && selectedRatio && selectedResolution);
@@ -213,7 +243,8 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
         setSelectedFirstFrameVideo(firstFrameModel);
         setSelectedStartEndVideo(startEndModel);
         setSelectedReferenceVideo(referenceModel);
-        setSelectedRatio(generation.video_ratio || '16:9');
+        // 简报带入的 9:16 优先于全局默认画幅；用户已选择时保持不变。
+        setSelectedRatio(previous => previous || generation.video_ratio || '16:9');
         setSelectedResolution(generation.video_resolution || '720P');
         setProviderCredentials(data.config?.api_providers || {});
       } catch (e) {
@@ -345,6 +376,18 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
             </p>
             <Link href="/settings">
               前往设置 <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </Link>
+          </div>
+        )}
+
+        {handoff && (
+          <div className="xyq-setup-notice" role="status">
+            <FileText className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+            <p>
+              已带入创作简报《{handoff.title}》v{handoff.revision}：剧本与制作要求已填入，未调用模型、未产生费用。
+            </p>
+            <Link href={`/creator?brief=${encodeURIComponent(handoff.briefId)}`}>
+              查看简报 <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </Link>
           </div>
         )}
@@ -597,8 +640,9 @@ export default function HomePage({ onStartProject, onResumeProject, onDeleteSess
               <div className="space-y-3 border-t border-gray-200/70 pt-4">
                 <div className="flex items-center justify-between">
                   <span className="text-gray-500 font-semibold">模型配置</span>
-                  <span className="text-[10px] text-gray-400">用于主流程各阶段调用</span>
+                  <button type="button" onClick={autoSelectModels} className="text-[11px] font-medium text-blue-600 hover:underline">按密钥自动选择</button>
                 </div>
+                {autoModelNote && <p className="text-[11px] leading-5 text-gray-500" role="status">{autoModelNote}</p>}
                 <div className="grid grid-cols-2 gap-3">
                 <label className="flex flex-col gap-1">
                   <span className="text-gray-500 font-medium">LLM 模型</span>
