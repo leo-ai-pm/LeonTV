@@ -575,6 +575,18 @@ MODEL_CONFIG['models'].update({
                          'ratios': ['16:9', '9:16', '1:1', '4:3', '3:4'],
                          'api_contract_verified': False},
     },
+    'claude-sonnet-5.5': {
+        'name': 'Claude Sonnet 5.5（土豆 API）', 'provider': 'tudou', 'family': 'claude',
+        'type': ['llm', 'vlm'],
+        'capabilities': {'ability_type': 'vision_language',
+                         'ability_types': ['vision_language', 'image_understanding', 'text_generation'],
+                         'adapter_ability_types': ['vision_language', 'image_understanding', 'text_generation'],
+                         'input_modalities': ['text', 'image'],
+                         'adapter_input_modalities': ['text', 'image'],
+                         'api_contract_verified': True,
+                         'verification_note': '2026-11-05 经土豆中转真实看图：输入 768×1344 首帧，'
+                                              '12.6 秒返回对人物、服装、逆光的准确描述'},
+    },
     'gemini-3.5-flash': {
         'name': 'Gemini 3.5 Flash（土豆 API）', 'provider': 'tudou', 'family': 'gemini',
         'type': ['llm', 'vlm'],

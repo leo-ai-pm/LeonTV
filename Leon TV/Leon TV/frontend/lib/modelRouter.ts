@@ -40,11 +40,13 @@ const PREFERENCE: Record<ModelCapability, Array<{ provider: string; models?: str
     { provider: 'deepseek', models: ['deepseek-chat', 'deepseek-v4-flash'] },
     { provider: 'openai', models: ['gpt-4o'] },
     { provider: 'gemini', models: ['gemini-2.5-flash'] },
+    { provider: 'tudou', models: ['claude-sonnet-5.5', 'gemini-3.5-flash'] },
   ],
   vlm: [
     { provider: 'dashscope', models: ['qwen3.5-plus'] },
     { provider: 'gemini', models: ['gemini-2.0-flash'] },
     { provider: 'openai', models: ['gpt-4o'] },
+    { provider: 'tudou', models: ['claude-sonnet-5.5', 'gemini-3.5-flash'] },
   ],
   t2i: [
     { provider: 'tudou', models: ['gpt-image-2-all'] },
