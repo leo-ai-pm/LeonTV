@@ -6,10 +6,14 @@ import {
   ReactFlow, Background, Controls, Handle, MiniMap, Position, addEdge, useEdgesState, useNodesState,
   type Connection, type NodeProps,
 } from '@xyflow/react';
-import { ArrowLeft, ArrowUpRight, Check, ChevronDown, CircleAlert, Clapperboard, Download, FileText, Film, Image as ImageIcon, LayoutGrid, Loader2, Play, Plus, Redo2, Save, Sparkles, Type, Undo2, Video, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Check, ChevronDown, CircleAlert, Clapperboard, Download, FileText, Film, Image as ImageIcon, LayoutGrid, Loader2, Play, Plus, Redo2, Save, Sparkles, Type, Undo2, Upload, Video, X } from 'lucide-react';
 import { fetchModelGroupsByType } from '@/lib/modelRegistry';
 import { exportStudioProject, getStudioProject, mediaUrl, saveStudioProject, type StudioEdge, type StudioKind, type StudioNode, type StudioNodeData, type StudioProject } from '@/lib/studioApi';
 import ModelOptions from '@/components/ModelOptions';
+import { describeImportedMedia, importKindForName } from '@/lib/studioImport';
+import { planModels } from '@/lib/modelRouter';
+import type { CanvasBus, CanvasHandlers } from '@/lib/canvasBus';
+import { uploadMedia } from '@/lib/workflowApi';
 import HarnessRunPanel from '@/components/harness/HarnessRunPanel';
 import type { ProviderGroup } from '@/config/models';
 
@@ -86,7 +90,13 @@ function newNode(kind: StudioKind, index: number, model = ''): StudioNode {
   };
 }
 
-export default function StudioCanvas({ projectId }: { projectId: string }) {
+export default function StudioCanvas({ projectId, variant = 'standalone', bus }: {
+  projectId: string;
+  /** workspace: 放进三栏工作台时只渲染画布本身，隐藏自带工具箱与属性面板。 */
+  variant?: 'standalone' | 'workspace';
+  /** 工作台把命令总线传进来，让右侧 Agent 面板也能操作画布。 */
+  bus?: CanvasBus;
+}) {
   const router = useRouter();
   const [nodes, setNodes, baseOnNodesChange] = useNodesState<StudioNode>([]);
   const [edges, setEdges, baseOnEdgesChange] = useEdgesState<StudioEdge>([]);
@@ -144,11 +154,22 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
   }, [projectId, setNodes, setEdges]);
 
   useEffect(() => {
-    Promise.all([fetchModelGroupsByType('t2i'), fetchModelGroupsByType('i2i'), fetchModelGroupsByType('video')])
-      .then(([t2i, i2i, video]) => setModelGroups({ t2i, i2i, video })).catch(() => {});
-    fetch('/api/config').then(response => response.json()).then(payload => {
-      const models = payload.config?.models || {};
-      setDefaultModels({ image: models.image_t2i || '', imageEdit: models.image_it2i || '', video: models.video_first_frame || models.video || '' });
+    // 默认模型按「已配置密钥」选，而不是照搬全局配置——否则会选中没有 key 的厂商。
+    Promise.all([
+      fetchModelGroupsByType('t2i'),
+      fetchModelGroupsByType('i2i'),
+      fetchModelGroupsByType('video'),
+      fetch('/api/config').then(response => response.json()).catch(() => null),
+    ]).then(([t2i, i2i, video, payload]) => {
+      setModelGroups({ t2i, i2i, video });
+      const models = payload?.config?.models || {};
+      const credentials = payload?.config?.api_providers || {};
+      const plan = planModels({ llm: [], vlm: [], t2i, i2i, video }, credentials);
+      setDefaultModels({
+        image: plan.picks.t2i?.model || models.image_t2i || '',
+        imageEdit: plan.picks.i2i?.model || models.image_it2i || '',
+        video: plan.picks.video?.model || models.video_first_frame || models.video || '',
+      });
     }).catch(() => {});
   }, []);
 
@@ -270,12 +291,46 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
     markDirty();
   }, [edges, setNodes, markDirty]);
 
+  // ── 断线自动续查：只查询原任务，永不重新提交 ──
+  const AUTO_RESUME_DELAYS = [15000, 45000, 120000];
+  const autoResumeRef = useRef(new Map<string, { attempts: number; timer: number; exhausted?: boolean }>());
+
+  const scheduleAutoResume = (nodeId: string, jobId: string) => {
+    const existing = autoResumeRef.current.get(nodeId);
+    if (existing?.exhausted || existing?.timer) return;
+    const attempts = (existing?.attempts || 0) + 1;
+    if (attempts > AUTO_RESUME_DELAYS.length) {
+      autoResumeRef.current.set(nodeId, { attempts, timer: 0, exhausted: true });
+      setNotice('自动续查已用尽，请手动点「生成」继续查询原任务。');
+      return;
+    }
+    const delay = AUTO_RESUME_DELAYS[attempts - 1];
+    const timer = window.setTimeout(() => {
+      const entry = autoResumeRef.current.get(nodeId);
+      if (entry) entry.timer = 0;
+      const current = latestRef.current.nodes.find(item => item.id === nodeId);
+      if (!current || current.data.jobId !== jobId || current.data.status !== 'interrupted') return;
+      setNotice(`连接中断，正在自动续查第 ${attempts}/${AUTO_RESUME_DELAYS.length} 次…`);
+      void fetch(`/api/sandbox/jobs/${jobId}/resume`, { method: 'POST' })
+        .then(response => {
+          if (!response.ok) throw new Error('resume rejected');
+          updateNode(nodeId, { status: 'running', error: '' });
+        })
+        .catch(() => scheduleAutoResume(nodeId, jobId));
+    }, delay);
+    autoResumeRef.current.set(nodeId, { attempts, timer });
+  };
+
   useEffect(() => {
     let active = true;
     let polling = false;
     const pollJobs = async () => {
       if (polling) return;
       polling = true;
+      // 已中断但保留了任务身份：自动续查（每个节点有次数上限）。
+      latestRef.current.nodes
+        .filter(node => node.data.status === 'interrupted' && node.data.jobId)
+        .forEach(node => scheduleAutoResume(node.id, node.data.jobId as string));
       try {
         await Promise.all(latestRef.current.nodes.filter(node => node.data.status === 'running' && node.data.jobId).map(async node => {
           try {
@@ -294,7 +349,12 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
             if (job.status === 'completed' && path) {
               const current = latestRef.current.nodes.find(item => item.id === node.id);
               const versions = Array.from(new Set([...(current?.data.versions || []), path]));
-              updateNode(node.id, { mediaPath: path, versions, status: 'completed', error: '', jobId: '' }, true);
+              autoResumeRef.current.delete(node.id);
+              // 生成完成后去掉名称里的「待生成」后缀。
+              const previousTitle = current?.data.title || '';
+              const settledTitle = previousTitle.replace(/\s*·\s*待生成\s*$/, '');
+              updateNode(node.id, { mediaPath: path, versions, status: 'completed', error: '', jobId: '',
+                ...(settledTitle && settledTitle !== previousTitle ? { title: settledTitle } : {}) }, true);
               setNotice('已生成新版本，并保留旧版本。');
             } else {
               const interrupted = job.status === 'interrupted' || output.query_pending;
@@ -302,6 +362,7 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
                 error: output.error || '生成任务未返回素材。',
                 providerTaskId: output.provider_task?.task_id || '',
                 jobId: interrupted ? node.data.jobId : '' });
+              if (interrupted && node.data.jobId) scheduleAutoResume(node.id, node.data.jobId);
             }
           } catch { /* A connection failure does not mean the provider task failed. */ }
         }));
@@ -312,13 +373,54 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
     return () => { active = false; window.clearInterval(timer); };
   }, [updateNode]);
 
-  const addNode = (kind: StudioKind) => {
+  const addNode = (kind: StudioKind, patch?: Partial<StudioNodeData>) => {
     captureHistory();
     const model = kind === 'image' ? defaultModels.image : kind === 'video' ? defaultModels.video : '';
     const node = newNode(kind, nodes.length, model);
+    if (patch) node.data = { ...node.data, ...patch };
     setNodes(current => [...current.map(item => ({ ...item, selected: false })), { ...node, selected: true }]);
     setSelectedId(node.id);
     markDirty();
+  };
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+
+  // 导入已有素材：只上传并放置节点，不调用模型、不产生费用。
+  const importMedia = async (file: File) => {
+    setImportError('');
+    if (!importKindForName(file.name)) {
+      setImportError('只支持图片或视频文件。');
+      return;
+    }
+    setImporting(true);
+    try {
+      const uploaded = await uploadMedia(file);
+      const described = describeImportedMedia(file.name, uploaded.file_path);
+      if (!described) throw new Error('上传结果不在可引用的素材目录中。');
+      captureHistory();
+      // 选中同类型空节点时直接填入，避免留下无法导出的占位节点。
+      const target = nodes.find(item => item.id === selectedId
+        && item.data.kind === described.kind && !item.data.mediaPath);
+      if (target) {
+        updateNode(target.id, { title: described.title, mediaPath: described.mediaPath,
+          versions: [described.mediaPath], status: 'completed', error: '' });
+        setNotice(`已导入素材「${described.title}」，填入选中的空节点。`);
+        return;
+      }
+      const node = newNode(described.kind, nodes.length);
+      node.data = { ...node.data, title: described.title, mediaPath: described.mediaPath,
+        versions: [described.mediaPath], status: 'completed' };
+      setNodes(current => [...current.map(item => ({ ...item, selected: false })), { ...node, selected: true }]);
+      setSelectedId(node.id);
+      markDirty();
+      setNotice(`已导入素材「${described.title}」。`);
+    } catch (cause) {
+      setImportError(cause instanceof Error ? cause.message : '导入失败，请重试。');
+    } finally {
+      setImporting(false);
+    }
   };
 
   const validateConnection = useCallback((connection: Connection | StudioEdge) => canConnect(connection, nodes, edges), [nodes, edges]);
@@ -340,6 +442,7 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
           const payload = await resumed.json().catch(() => ({}));
           if (!resumed.ok) throw new Error(payload.detail || '原任务暂时无法恢复查询。');
         }
+        autoResumeRef.current.delete(node.id);
         updateNode(node.id, { status: 'running', error: '' });
         setNotice('正在查询原任务结果；未提交新的生成任务。');
       } catch (cause) {
@@ -349,10 +452,13 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
     }
     const prompt = (node.data.description || '').trim();
     if (!prompt) { setNotice('请先在右侧填写生成提示词。'); return; }
-    const hasImageInput = edges.some(edge => edge.target === node.id && nodes.some(source => source.id === edge.source && source.data.kind === 'image'));
+    // 用最新快照判断上游：一键出片会在等待期间更新节点，闭包里的旧值会误判。
+    const liveNodes = latestRef.current.nodes || [];
+    const liveEdges = latestRef.current.edges || [];
+    const hasImageInput = liveEdges.some(edge => edge.target === node.id && liveNodes.some(source => source.id === edge.source && source.data.kind === 'image'));
     const model = node.data.model || (kind === 'image' ? (hasImageInput ? defaultModels.imageEdit : defaultModels.image) : defaultModels.video);
     if (!model) { setNotice('当前没有可用模型，请先前往设置配置模型。'); return; }
-    const parent = edges.map(edge => edge.target === node.id ? nodes.find(item => item.id === edge.source) : null)
+    const parent = liveEdges.map(edge => edge.target === node.id ? liveNodes.find(item => item.id === edge.source) : null)
       .find(item => item?.data.mediaPath && item.data.kind === 'image');
     const image = parent?.data.mediaPath || '';
     if (hasImageInput && (!image || parent?.data.status === 'stale')) { setNotice('上游参考图尚未就绪，请先完成或更新参考图。'); return; }
@@ -406,11 +512,114 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
     } finally { nodeRunLocks.current.delete(node.id); }
   };
 
+  // ── 一键出片：按画布顺序逐镜生成素材，全部完成后再导出 ──
+  const pipelineRunningRef = useRef(false);
+
+  const waitForNode = (id: string, timeoutMs = 15 * 60 * 1000) =>
+    new Promise<string>(resolve => {
+      const started = Date.now();
+      const timer = window.setInterval(() => {
+        const current = latestRef.current.nodes.find(item => item.id === id);
+        const status = current?.data.status || '';
+        if (status === 'completed' || status === 'error' || status === 'interrupted') {
+          window.clearInterval(timer);
+          resolve(status);
+        } else if (Date.now() - started > timeoutMs) {
+          window.clearInterval(timer);
+          resolve('timeout');
+        }
+      }, 2000);
+    });
+
+  const runPipeline = async (scope: 'single' | 'all') => {
+    if (pipelineRunningRef.current) return;
+    const kindRank = (kind: string) => (kind === 'image' ? 0 : kind === 'video' ? 1 : 2);
+    const targets = [...latestRef.current.nodes]
+      .filter(item => (item.data.kind === 'image' || item.data.kind === 'video')
+        && !item.data.mediaPath && (item.data.description || '').trim())
+      .sort((a, b) => (a.position.y - b.position.y) || (kindRank(a.data.kind) - kindRank(b.data.kind)));
+    // 单镜 = 画布中最靠上的那一组素材节点（同一镜的图与视频 y 相同）。
+    const firstY = targets[0]?.position.y;
+    const list = scope === 'single' ? targets.filter(item => item.position.y === firstY) : targets;
+    if (!list.length) { setNotice('没有待生成的素材节点：请先填写提示词，或已有素材。'); return; }
+
+    pipelineRunningRef.current = true;
+    try {
+      for (const [index, node] of list.entries()) {
+        setNotice(`一键出片：正在生成第 ${index + 1}/${list.length} 个节点「${node.data.title || node.id}」…`);
+        await runNode(node);
+        const status = await waitForNode(node.id);
+        if (status !== 'completed') {
+          setNotice(`「${node.data.title || node.id}」未完成（${status}），已停止后续生成；已生成的素材保留。`);
+          return;
+        }
+      }
+      if (scope === 'all') {
+        setNotice('素材已全部生成，正在导出成片…');
+        await exportVideo();
+        setNotice('一键出片完成：成片已导出，可在左侧预览和下载。');
+      } else {
+        setNotice('单镜素材已生成；确认无误后可再执行完整出片。');
+      }
+    } finally {
+      pipelineRunningRef.current = false;
+    }
+  };
+
+  // ── 对外命令总线：注册画布动作并广播选中节点（须在任何 early return 之前）──
+  const removeNode = (id: string) => {
+    captureHistory();
+    setNodes(current => current.filter(item => item.id !== id));
+    setEdges(current => current.filter(edge => edge.source !== id && edge.target !== id));
+    setSelectedId(null);
+    markDirty();
+  };
+  const busActionsRef = useRef<CanvasHandlers | null>(null);
+  useEffect(() => {
+    busActionsRef.current = {
+      addNode,
+      updateNode: (id, patch) => updateNode(id, patch),
+      deleteNode: id => removeNode(id),
+      runNode: id => {
+        const node = nodes.find(item => item.id === id);
+        if (node) void runNode(node);
+      },
+      exportVideo: () => void exportVideo(),
+      runPipeline: scope => { void runPipeline(scope); },
+      snapshot: () => ({
+        title,
+        nodes: nodes.map(item => ({
+          id: item.id,
+          kind: item.data.kind,
+          title: item.data.title || '',
+          description: item.data.description || '',
+          status: item.data.status || '',
+          mediaPath: item.data.mediaPath || '',
+          duration: item.data.duration,
+        })),
+      }),
+    };
+  });
+  useEffect(() => {
+    if (!bus) return;
+    return bus.register({
+      addNode: (kind, patch) => busActionsRef.current?.addNode(kind, patch),
+      updateNode: (id, patch) => busActionsRef.current?.updateNode(id, patch),
+      deleteNode: id => busActionsRef.current?.deleteNode(id),
+      runNode: id => busActionsRef.current?.runNode(id),
+      exportVideo: () => busActionsRef.current?.exportVideo(),
+      runPipeline: scope => busActionsRef.current?.runPipeline(scope),
+      snapshot: () => busActionsRef.current?.snapshot() ?? { title: '', nodes: [] },
+    });
+  }, [bus]);
+  useEffect(() => { bus?.setSelection(selectedNode); }, [bus, selectedNode]);
+
   if (loading) return <div className="studio-canvas-loading"><Loader2 size={24} className="animate-spin" /> 正在打开项目画布…</div>;
   if (loadError) return <div className="studio-canvas-loading"><CircleAlert size={23} /> {loadError}<button onClick={() => router.push('/studio')}>返回项目</button></div>;
 
+
   return (
-    <div className="studio-editor">
+    <div className="studio-editor" data-variant={variant}>
       {harnessOpen && <HarnessRunPanel key={projectId} projectId={projectId} onClose={() => setHarnessOpen(false)} />}
       <header className="studio-editor-header">
         <button aria-label="返回项目" onClick={() => void leaveCanvas('/studio')} className="studio-icon-button"><ArrowLeft size={18} /></button>
@@ -427,13 +636,24 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
       </header>
 
       <div className="studio-editor-main">
-        <aside className="studio-toolbox">
+        {variant === 'standalone' && <aside className="studio-toolbox">
           <div className="studio-panel-label">创作节点</div>
           <p className="studio-toolbox-hint">点击添加到画布，拖动节点右侧连线至下一步。</p>
           {(['text', 'storyboard', 'image', 'video'] as StudioKind[]).map(kind => {
             const Icon = KIND_ICON[kind];
             return <button key={kind} onClick={() => addNode(kind)} className="studio-tool-button"><span style={{ color: KIND_COLOR[kind], backgroundColor: `${KIND_COLOR[kind]}1a` }}><Icon size={18} /></span><span>{KIND_LABEL[kind]}</span><Plus size={14} className="ml-auto text-[#aab3c3]" /></button>;
           })}
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={importing} className="studio-tool-button">
+            <span style={{ color: KIND_COLOR.image, backgroundColor: `${KIND_COLOR.image}1a` }}>{importing ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}</span>
+            <span>{importing ? '正在导入…' : '导入素材'}</span>
+            <Plus size={14} className="ml-auto text-[#aab3c3]" />
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={event => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) void importMedia(file);
+          }} />
+          {importError && <p role="alert" className="mt-2 text-xs leading-5 text-red-600">{importError}</p>}
           <div className="studio-toolbox-divider" />
           <div className="studio-panel-label">画布内容</div>
           <div className="studio-toolbox-stat"><span>节点</span><strong>{nodes.length}</strong></div>
@@ -447,7 +667,7 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
           {exportError && <p role="alert" className="mt-2 text-xs leading-5 text-red-600">{exportError}</p>}
           {exports[0] && <div className="studio-export-preview"><video src={mediaUrl(exports[0].path)} controls preload="metadata" /><a href={mediaUrl(exports[0].path)} download={`${title || 'LeonTV-成片'}.mp4`}><Download size={14} /> 下载最新成片</a></div>}
           <p className="studio-toolbox-tip">空格拖动画布 · 滚轮缩放 · 点击节点查看详情 · Delete 删除选中节点</p>
-        </aside>
+        </aside>}
 
         <div className="studio-flow-wrap">
           {nodes.length === 0 && <div className="studio-empty-canvas"><div className="studio-empty-icon"><LayoutGrid size={31} /></div><h2>从一个节点开始</h2><p>在左侧添加文本、分镜、图片或视频节点，串起你的创作流程。</p><button onClick={() => addNode('text')}><Plus size={17} /> 添加文本节点</button></div>}
@@ -470,7 +690,7 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
           {notice && <div role="status" className="studio-notice">{notice}<button onClick={() => setNotice('')} aria-label="关闭提示"><X size={14} /></button></div>}
         </div>
 
-        <aside className="studio-inspector">
+        {variant === 'standalone' && <aside className="studio-inspector">
           <div className="studio-panel-label">节点属性</div>
           {!selectedNode ? <div className="studio-inspector-empty"><div><ChevronDown size={23} /></div><h3>选择一个节点</h3><p>查看内容、生成参数与历史版本。</p></div> : <>
             <div className="studio-inspector-kind" style={{ color: KIND_COLOR[selectedNode.data.kind] }}>{KIND_LABEL[selectedNode.data.kind]} {selectedNode.data.sourceStage && <span>六阶段产物</span>}</div>
@@ -491,7 +711,7 @@ export default function StudioCanvas({ projectId }: { projectId: string }) {
             {Boolean(selectedNode.data.versions?.length) && <><label className="studio-field-label">历史版本</label><select value={selectedNode.data.mediaPath || ''} onChange={event => updateNode(selectedNode.id, { mediaPath: event.target.value }, true)} className="studio-field-input">{selectedNode.data.versions?.map((version, index) => <option key={`${version}-${index}`} value={version}>版本 {index + 1}</option>)}</select></>}
             {selectedNode.data.status === 'stale' && <div className="studio-stale-note"><CircleAlert size={15} /> 上游内容已变化，此节点需要更新。</div>}
           </>}
-        </aside>
+        </aside>}
       </div>
     </div>
   );

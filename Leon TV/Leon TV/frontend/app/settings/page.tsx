@@ -336,7 +336,7 @@ export default function SettingsPage() {
                     const value = getValue(config, field.path);
                     return (
                       <label key={field.path} className="flex flex-col gap-1.5 min-w-0">
-                        <span className="text-xs font-medium text-gray-500">{field.label}</span>
+                        <span className="text-xs font-medium text-gray-500">{field.type === 'password' ? `${group.title} ${field.label}` : field.label}</span>
                         {field.type === 'boolean' ? (
                           <select
                             value={String(Boolean(value))}
