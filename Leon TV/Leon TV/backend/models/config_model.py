@@ -575,6 +575,18 @@ MODEL_CONFIG['models'].update({
                          'ratios': ['16:9', '9:16', '1:1', '4:3', '3:4'],
                          'api_contract_verified': False},
     },
+    'gemini-3.8-flash': {
+        'name': 'Gemini 3.8 Flash（土豆 API）', 'provider': 'tudou', 'family': 'gemini',
+        'type': ['llm', 'vlm'],
+        'capabilities': {'ability_type': 'vision_language',
+                         'ability_types': ['vision_language', 'image_understanding', 'text_generation'],
+                         'adapter_ability_types': ['vision_language', 'image_understanding', 'text_generation'],
+                         'input_modalities': ['text', 'image'],
+                         'adapter_input_modalities': ['text', 'image'],
+                         'api_contract_verified': True,
+                         'verification_note': '2026-11-05 经土豆中转真实看图：能读出灯塔/落日/海面等画面要素；'
+                                              '按 token 计费（倍率 0.375），远低于 Claude 的按次 ¥0.6'},
+    },
     'claude-sonnet-5.5': {
         'name': 'Claude Sonnet 5.5（土豆 API）', 'provider': 'tudou', 'family': 'claude',
         'type': ['llm', 'vlm'],
