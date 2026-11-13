@@ -66,11 +66,13 @@ Both review exports are **720 × 1280, 9:16, 24 fps, 15 seconds, H.264 + AAC**. 
 | **Specialized pipelines** | Explore quick videos, motion transfer and digital humans | Pipeline-specific inputs and model settings; availability depends on the configured provider |
 | **Harness run validation** | Check execution, gates and recovery inside a project | Test plans, versions, events, execution limits, reconciliation and test final decisions; no real creative output |
 
-```text
-Idea / script → Script planning → Characters & scenes → Storyboard
-                                                         ↓
-Edited output ← Video clips ← Reference images ←──────────┘
-```
+## Workflow
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/workflow-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/workflow-light.svg">
+  <img alt="Leon TV six-stage video creation: script, characters and scenes, storyboard, references, clips, editing, then preview and review." src="assets/workflow-light.svg" width="1200">
+</picture>
 
 The application saves intermediate results locally. Some character, reference-image and storyboard stages already contain evaluation, validation and bounded correction logic. Model clients separate text, vision, image and video integrations.
 
@@ -84,30 +86,14 @@ The server explicitly selects Chat Completions or Responses. Responses uses non-
 
 A Harness manages the environment in which an Agent works: tool access, context, state, budget, checkpoints, quality feedback and recovery. Leon TV aims to support planning, generation, inspection and local repairs within a bounded task, followed by final human acceptance.
 
-```mermaid
-flowchart TD
-    User[User: brief and final acceptance] --> UI[Creator brief / advanced canvas]
-    UI --> API[FastAPI task and project APIs]
-    API --> Workflow[Current six-stage orchestrator]
-    Workflow --> Agents[Script / characters / storyboard / references / video / editor]
-    Agents --> Models[LLM / vision / image / video adapters]
-    Agents --> Tools[Files / media tools / FFmpeg]
-    Workflow --> Store[Local state and artifacts]
-    Models --> Providers[Configured model providers]
-    API --> Brief[Saved brief / frozen revision]
-    Brief --> Planner[Durable planning task]
-    Planner --> Wait[Normal: awaiting authorization]
-    Wait --> Control[Separate execution record: quote / grant / reservation]
-    Control --> Synthetic[Single request / receipt / local pricing: synthetic validation]
-    Synthetic --> Plan
-    Planner --> Loop[Offline: bounded tool-feedback loop]
-    Loop --> Plan[Structured plan / quality unreviewed]
-    API --> Runtime[Integrated: Harness test runtime]
-    Runtime --> Private[Private state / keys / events / artifact versions]
-    Runtime --> Fixtures[Test planner / supplier / reviewer]
-    Runtime --> Gates[Quality gates / recovery / test final review]
-    Harness[Next: integrate live roles / visual review and repair] -.integration.-> Runtime
-```
+| Layer | Responsibility | Execution scope |
+| --- | --- | --- |
+| Workspace and project APIs | Capture briefs, manage canvas nodes and expose task operations | Saving input does not start generation |
+| Six-stage creation | Run script, design, storyboard, reference, video and editing handlers | Review intermediate results and continue by stage |
+| Models and media tools | Adapt LLM, vision, image and video providers; process media with FFmpeg | Availability depends on model configuration and provider support |
+| Controlled planning and production | Freeze brief revisions; apply quotes, scoped consent, reservations, role receipts and asset handoffs | Image production requires its own scope; unknown receipts pause further dispatch |
+| Local state and recovery | Preserve sessions, artifacts, execution events, versions and checkpoints | Offline validation uses synthetic actors; it does not establish media quality |
+| Quality and final review | Stage checks, bounded feedback and final human review | Full autonomous visual review and repair remain in development |
 
 The creative execution layer remains a fixed stage state machine. The Harness runtime now has a formal product path: only its planner, reviewer and supplier actors are fixtures; the UI, API, persistence and recovery are real implementations. Fixture acceptance does not establish creative quality or a fully autonomous product. [Architecture details](./docs/ARCHITECTURE.md).
 
