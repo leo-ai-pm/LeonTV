@@ -13,7 +13,6 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square)
 ![Next.js](https://img.shields.io/badge/Next.js-16-111111?style=flat-square)
 ![Local first](https://img.shields.io/badge/Local-first-0F766E?style=flat-square)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
 </div>
 
@@ -276,9 +275,3 @@ LeonTV/
 **能直接部署成公共 SaaS 吗？** 当前面向个人本地使用；多用户鉴权、租户隔离、凭据托管与生产运维仍需另外实现。请保持默认本地监听。
 
 **视频为什么可能不完全遵循要求？** 生成完成与内容合格是两件事。当前样片已暴露字幕和动作偏差，后续通过质量审查、反馈与有界返工逐步解决。
-
-## 许可证
-
-LeonTV 由本项目维护者持续开发和维护，产品展示与公开入口使用 LeonTV 品牌。
-
-本仓库按 [MIT License](./LICENSE) 发布。使用的第三方代码及其必要版权与许可声明以许可证文件为准；产品命名调整不改变这些代码的权利归属。

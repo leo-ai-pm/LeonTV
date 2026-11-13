@@ -13,7 +13,6 @@ Turn ideas and scripts into storyboards, images, video clips and edited outputâ€
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square)
 ![Next.js](https://img.shields.io/badge/Next.js-16-111111?style=flat-square)
 ![Local first](https://img.shields.io/badge/Local-first-0F766E?style=flat-square)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
 </div>
 
@@ -237,9 +236,3 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development checks. Priorities are:
 **Can I expose it as a public SaaS?** The current scope is personal local use. Multi-user authentication, tenant isolation, credential hosting and production operations require additional work. Keep the default local binding.
 
 **Are the demos fully accepted?** They demonstrate real generation and valid media files. Known content defects remain, and dialogue and lip synchronization still require human review.
-
-## License
-
-LeonTV is developed and maintained by this project's maintainers. Public product entry points use the LeonTV brand.
-
-This repository is distributed under the [MIT License](./LICENSE). Required third-party copyright and permission notices remain in the license file. Product naming changes do not alter ownership of incorporated code.
